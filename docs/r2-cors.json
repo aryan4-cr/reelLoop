@@ -1,0 +1,13 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": ["https://REPLACE.reelloop.workers.dev"],
+        "methods": ["PUT", "GET", "HEAD"],
+        "headers": ["Content-Type", "x-amz-*"]
+      },
+      "exposeHeaders": ["ETag"],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}
