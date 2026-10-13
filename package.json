@@ -1,1 +1,41 @@
-{"name":"reelloop","version":"0.1.0","private":true,"type":"module","scripts":{"dev":"vite --host 127.0.0.1","dev:worker":"wrangler dev --test-scheduled","build":"tsc --noEmit && vite build","typecheck":"tsc --noEmit","test":"vitest run","db:local":"wrangler d1 migrations apply reelloop --local","deploy":"npm run build && wrangler deploy","check":"npm run typecheck && npm test && npm run build"},"dependencies":{"@aws-sdk/client-s3":"latest","@aws-sdk/s3-request-presigner":"latest","hono":"latest","jose":"latest","lucide-react":"latest","react":"latest","react-dom":"latest","zod":"latest"},"devDependencies":{"@cloudflare/workers-types":"latest","@tailwindcss/vite":"latest","@types/node":"latest","@types/react":"latest","@types/react-dom":"latest","@vitejs/plugin-react":"latest","tailwindcss":"latest","typescript":"latest","vite":"latest","vitest":"latest","wrangler":"latest","miniflare":"latest"}}
+{
+  "name": "reelloop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:worker": "wrangler dev --test-scheduled",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:local": "wrangler d1 migrations apply reelloop --local",
+    "deploy": "npm run build && wrangler deploy",
+    "check": "npm run typecheck && npm test && npm run build",
+    "format": "prettier --write src worker tests migrations *.md *.json *.jsonc *.ts docs scripts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1150.0",
+    "@aws-sdk/s3-request-presigner": "3.1150.0",
+    "hono": "4.13.13",
+    "lucide-react": "1.56.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261013.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "miniflare": "5.20261006.2-beta",
+    "prettier": "3.9.10",
+    "tailwindcss": "4.3.3",
+    "typescript": "7.0.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.4",
+    "wrangler": "4.150.0"
+  }
+}
