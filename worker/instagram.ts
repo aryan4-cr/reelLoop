@@ -1,3 +1,4 @@
+import { OperationError, type Stage } from "./diagnostics";
 import type { Env } from "./types";
 export class MetaError extends Error {
   constructor(
@@ -44,7 +45,7 @@ export interface MetaAdapter {
 export class Instagram implements MetaAdapter {
   constructor(
     readonly env: Env,
-    readonly fetcher: typeof fetch = fetch,
+    readonly fetcher: typeof fetch = (input, init) => fetch(input, init),
   ) {}
   async request<T>(
     path: string,
@@ -177,45 +178,95 @@ export class Instagram implements MetaAdapter {
     });
     return data.data ?? [];
   }
+  private async oauthResponse(
+    stage: Stage,
+    url: string | URL,
+    init?: RequestInit,
+  ) {
+    let res: Response;
+    try {
+      res = await this.fetcher(url, {
+        ...init,
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch {
+      throw new OperationError(stage, 502);
+    }
+    let data: Record<string, unknown>;
+    try {
+      const value: unknown = await res.json();
+      if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error();
+      data = value as Record<string, unknown>;
+    } catch {
+      throw new OperationError(stage, 502, res.status);
+    }
+    if (!res.ok || data.error || data.error_type) {
+      const error = data.error as { code?: unknown } | undefined;
+      const code = error?.code ?? data.code;
+      throw new OperationError(
+        stage,
+        502,
+        res.status,
+        typeof code === "number" ? code : undefined,
+      );
+    }
+    return { data, status: res.status };
+  }
   async exchange(code: string) {
     if (!this.env.META_APP_ID || !this.env.META_APP_SECRET)
-      throw new Error("Instagram Login is not configured.");
+      throw new OperationError("oauth_code", 503);
     const body = new URLSearchParams({
       client_id: this.env.META_APP_ID,
       client_secret: this.env.META_APP_SECRET,
       grant_type: "authorization_code",
-      redirect_uri: `${this.env.PUBLIC_ORIGIN}/api/instagram/callback`,
+      redirect_uri: this.env.PUBLIC_ORIGIN + "/api/instagram/callback",
       code,
     });
-    const shortRes = await this.fetcher(
+    const short = await this.oauthResponse(
+      "oauth_code",
       "https://api.instagram.com/oauth/access_token",
-      { method: "POST", body, signal: AbortSignal.timeout(15000) },
+      { method: "POST", body },
     );
-    const short = (await shortRes.json()) as {
-      access_token?: string;
-      user_id?: string;
-    };
-    if (!shortRes.ok || !short.access_token) throw new MetaError(190, false);
+    if (typeof short.data.access_token !== "string" || !short.data.access_token)
+      throw new OperationError("oauth_code", 502, short.status);
     const url = new URL("https://graph.instagram.com/access_token");
     url.searchParams.set("grant_type", "ig_exchange_token");
     url.searchParams.set("client_secret", this.env.META_APP_SECRET);
-    url.searchParams.set("access_token", short.access_token);
-    const longRes = await this.fetcher(url, {
-      signal: AbortSignal.timeout(15000),
+    url.searchParams.set("access_token", short.data.access_token);
+    const long = await this.oauthResponse("oauth_long_token", url);
+    const token = long.data.access_token,
+      expires = long.data.expires_in;
+    if (
+      typeof token !== "string" ||
+      !token ||
+      typeof expires !== "number" ||
+      !Number.isFinite(expires) ||
+      expires <= 0
+    )
+      throw new OperationError("oauth_long_token", 502, long.status);
+    if (!/^v\d+\.0$/.test(this.env.META_API_VERSION))
+      throw new OperationError("oauth_profile", 503);
+    const profileUrl = new URL(
+      "https://graph.instagram.com/" + this.env.META_API_VERSION + "/me",
+    );
+    profileUrl.searchParams.set("fields", "user_id,username");
+    const profile = await this.oauthResponse("oauth_profile", profileUrl, {
+      headers: { Authorization: "Bearer " + token },
     });
-    const long = (await longRes.json()) as {
-      access_token: string;
-      expires_in: number;
+    const id = profile.data.user_id ?? short.data.user_id ?? profile.data.id;
+    if (
+      !id ||
+      !["string", "number"].includes(typeof id) ||
+      typeof profile.data.username !== "string" ||
+      !profile.data.username
+    )
+      throw new OperationError("oauth_profile", 502, profile.status);
+    return {
+      access_token: token,
+      expires_in: expires,
+      id: String(id),
+      username: profile.data.username,
     };
-    if (!longRes.ok || !long.access_token || !long.expires_in)
-      throw new MetaError(190, false);
-    const profile = await this.request<{
-      id: string;
-      user_id?: string;
-      username: string;
-    }>("me", long.access_token, "GET", { fields: "user_id,username" });
-    const id = profile.user_id ?? short.user_id ?? profile.id;
-    if (!id || !profile.username) throw new MetaError(190, false);
-    return { ...long, id: String(id), username: profile.username };
   }
 }

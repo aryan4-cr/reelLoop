@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "db:local": "wrangler d1 migrations apply reelloop --local",
+    "db:local": "wrangler d1 migrations apply DB --local",
     "deploy": "npm run build && wrangler deploy",
     "check": "npm run typecheck && npm test && npm run build",
     "format": "prettier --write src worker tests migrations *.md *.json *.jsonc *.ts docs scripts"
@@ -17,6 +17,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "3.1150.0",
     "@aws-sdk/s3-request-presigner": "3.1150.0",
+    "@aws-sdk/xml-builder": "3.972.41",
     "hono": "4.13.13",
     "lucide-react": "1.56.0",
     "react": "19.3.0",
@@ -30,6 +31,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",
+    "esbuild": "0.28.2",
     "miniflare": "5.20261006.2-beta",
     "prettier": "3.9.10",
     "tailwindcss": "4.3.3",

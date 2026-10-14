@@ -2,7 +2,7 @@
   "rules": [
     {
       "allowed": {
-        "origins": ["https://REPLACE.reelloop.workers.dev"],
+        "origins": ["https://my-worker.reelloop.workers.dev"],
         "methods": ["PUT", "GET", "HEAD"],
         "headers": ["Content-Type", "x-amz-*"]
       },

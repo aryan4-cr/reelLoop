@@ -7,6 +7,8 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { HTTPException } from "hono/http-exception";
 import type { Env, Video, Job } from "./types";
+import { atStage } from "./diagnostics";
+import { LeaseLostError, type Lease } from "./lease";
 export const PART_SIZE = 16 * 1024 * 1024;
 export function configured(env: Env) {
   return Boolean(
@@ -59,48 +61,66 @@ export async function verifyUpload(
   env: Env,
   v: Video,
   copy?: (etag: string) => Promise<void>,
+  lease?: Lease,
 ) {
-  const head = await env.VIDEOS.head(`staging/${v.id}`);
-  if (!head || head.size !== v.size_bytes)
-    throw new HTTPException(400, {
-      message: "Uploaded size does not match the reserved video.",
+  const head = await atStage("upload_verification", async () => {
+    const head = await env.VIDEOS.head(`staging/${v.id}`);
+    if (!head || head.size !== v.size_bytes)
+      throw new HTTPException(400, {
+        message: "Uploaded size does not match the reserved video.",
+      });
+    const chunk = await env.VIDEOS.get(`staging/${v.id}`, {
+      range: { offset: 0, length: 32 },
+      onlyIf: { etagMatches: head.etag },
     });
-  const chunk = await env.VIDEOS.get(`staging/${v.id}`, {
-    range: { offset: 0, length: 32 },
-    onlyIf: { etagMatches: head.etag },
+    if (
+      !chunk ||
+      !("body" in chunk) ||
+      !validMagic(new Uint8Array(await new Response(chunk.body).arrayBuffer()))
+    )
+      throw new HTTPException(400, {
+        message: "File is not a supported MP4/MOV container.",
+      });
+    return head;
   });
-  if (
-    !chunk ||
-    !("body" in chunk) ||
-    !validMagic(new Uint8Array(await new Response(chunk.body).arrayBuffer()))
-  )
-    throw new HTTPException(400, {
-      message: "File is not a supported MP4/MOV container.",
-    });
-  if (copy) await copy(head.etag);
-  else
-    await client(env).send(
-      new CopyObjectCommand({
-        Bucket: env.R2_BUCKET_NAME,
-        Key: `videos/${v.id}`,
-        CopySource: `${env.R2_BUCKET_NAME}/staging/${v.id}`,
-        CopySourceIfMatch: head.httpEtag,
-        MetadataDirective: "REPLACE",
-        ContentType: v.content_type,
-      }),
-      { abortSignal: AbortSignal.timeout(20000) },
-    );
-  const final = await env.VIDEOS.head(`videos/${v.id}`);
-  if (!final || final.size !== v.size_bytes)
-    throw new HTTPException(400, {
-      message: "Stored object verification failed. Retry finalization.",
-    });
-  await env.DB.prepare(
-    "UPDATE videos SET status='ready',object_key=?,multipart_id=NULL,position=(SELECT COALESCE(MAX(position),-1)+1 FROM videos WHERE status='ready') WHERE id=? AND status='uploading'",
-  )
-    .bind(`videos/${v.id}`, v.id)
-    .run();
-  await env.VIDEOS.delete(`staging/${v.id}`);
+  await atStage("upload_promotion", async () => {
+    await lease?.assert();
+    if (copy) await copy(head.etag);
+    else
+      await client(env).send(
+        new CopyObjectCommand({
+          Bucket: env.R2_BUCKET_NAME,
+          Key: `videos/${v.id}`,
+          CopySource: `${env.R2_BUCKET_NAME}/staging/${v.id}`,
+          CopySourceIfMatch: head.httpEtag,
+          MetadataDirective: "REPLACE",
+          ContentType: v.content_type,
+        }),
+        { abortSignal: AbortSignal.timeout(20000) },
+      );
+  });
+  await atStage("upload_final_verification", async () => {
+    const final = await env.VIDEOS.head(`videos/${v.id}`);
+    if (!final || final.size !== v.size_bytes)
+      throw new HTTPException(400, {
+        message: "Stored object verification failed. Retry finalization.",
+      });
+  });
+  await atStage("upload_persistence", async () => {
+    await lease?.assert();
+    const row = await env.DB.prepare(
+      `UPDATE videos SET status='ready',object_key=?,multipart_id=NULL,position=(SELECT COALESCE(MAX(position),-1)+1 FROM videos WHERE status='ready') WHERE id=? AND status='uploading' ${lease ? `AND ${lease.guard()}` : ""} RETURNING id`,
+    )
+      .bind(`videos/${v.id}`, v.id)
+      .first();
+    if (!row) throw new LeaseLostError();
+  });
+  // Ready is durable. Lifecycle expiration can remove staging if cleanup fails.
+  try {
+    await env.VIDEOS.delete(`staging/${v.id}`);
+  } catch {
+    console.warn("upload_staging_cleanup_deferred");
+  }
 }
 export function parseRange(
   value: string | null,

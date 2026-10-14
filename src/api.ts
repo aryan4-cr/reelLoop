@@ -39,7 +39,12 @@ export async function api<T = unknown>(
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = (await res.json()) as T & { error?: string };
+  const data = (await res.json().catch(() => {
+    throw new ApiError(
+      `Server returned an unreadable response (HTTP ${res.status}). Refresh the dashboard to check the operation before retrying.`,
+      res.status,
+    );
+  })) as T & { error?: string };
   if (!res.ok) throw new ApiError(data.error ?? "Request failed.", res.status);
   return data;
 }
@@ -129,6 +134,18 @@ function put(
     xhr.send(blob);
   });
 }
+// Keep completed part metadata for retries in this tab. Once multipart completion
+// succeeds, the server can recover from staging even after a page reload.
+const completedParts = new Map<
+  string,
+  Array<{ partNumber: number; etag: string }>
+>();
+export async function finalizeUpload(id: string) {
+  await api(`/uploads/${id}/complete`, "POST", {
+    parts: completedParts.get(id),
+  });
+  completedParts.delete(id);
+}
 export async function uploadFile(
   file: File,
   onProgress: (percent: number) => void,
@@ -153,6 +170,7 @@ export async function uploadFile(
     size_bytes: file.size,
     ...meta,
   });
+  let finalizing = false;
   try {
     const parts = [];
     if (reservation.multipart) {
@@ -188,12 +206,17 @@ export async function uploadFile(
         (n) => onProgress(Math.floor((n / file.size) * 95)),
         type,
       );
+    finalizing = true;
     onProgress(97);
-    await api(`/uploads/${reservation.id}/complete`, "POST", {
-      parts: reservation.multipart ? parts : undefined,
-    });
+    if (reservation.multipart) completedParts.set(reservation.id, parts);
+    await finalizeUpload(reservation.id);
     onProgress(100);
   } catch (e) {
+    if (finalizing) {
+      throw new Error(
+        `${e instanceof Error ? e.message : "Finalization failed."} The pending upload has been retained. Retry finalization in the library within 24 hours, before staging cleanup.`,
+      );
+    }
     try {
       await api(`/uploads/${reservation.id}`, "DELETE");
     } catch {

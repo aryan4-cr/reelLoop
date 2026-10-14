@@ -39,6 +39,7 @@ import {
   setCsrf,
   bytes,
   uploadFile,
+  finalizeUpload,
   type Dashboard,
   type PublicVideo,
   type PublicJob,
@@ -938,6 +939,19 @@ export default function App() {
                             : "Deletion pending"}{" "}
                           ({bytes(v.size_bytes)})
                         </span>
+                        {v.status === "uploading" && (
+                          <Button
+                            disabled={busy}
+                            onClick={() =>
+                              run(
+                                () => finalizeUpload(v.id),
+                                "Upload verified.",
+                              )
+                            }
+                          >
+                            Retry finalization
+                          </Button>
+                        )}
                         {v.status === "uploading" && (
                           <Button
                             disabled={busy}

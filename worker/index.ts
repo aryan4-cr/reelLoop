@@ -24,6 +24,7 @@ import {
 } from "./security";
 import { BusyError, withLease } from "./lease";
 import { Instagram, MetaError } from "./instagram";
+import { atStage, OperationError } from "./diagnostics";
 import { uploadSchema, settingsSchema, videoSchema } from "./validation";
 import { upcoming } from "./queue";
 import { tick, createJob, complete, event } from "./scheduler";
@@ -40,6 +41,14 @@ type Vars = { session: { csrf: string; hash: string; expires_at: number } };
 export const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 app.use("*", async (c, next) => {
   const origin = new URL(c.env.APP_ORIGIN);
+  const requested = new URL(c.req.url);
+  if (origin.protocol === "https:" && requested.protocol !== "https:") {
+    if (!["GET", "HEAD"].includes(c.req.method))
+      return c.json({ error: "HTTPS is required for this request." }, 400);
+    origin.pathname = requested.pathname;
+    origin.search = requested.search;
+    return c.redirect(origin.toString(), 308);
+  }
   if (
     origin.protocol !== "https:" &&
     !["localhost", "127.0.0.1"].includes(origin.hostname)
@@ -61,6 +70,10 @@ app.use("*", async (c, next) => {
     c.header("Strict-Transport-Security", "max-age=31536000");
 });
 app.onError((err, c) => {
+  if (err instanceof OperationError) {
+    console.warn("operation_failed", JSON.stringify(err.diagnostic()));
+    return c.json({ error: err.message, ...err.diagnostic() }, err.status);
+  }
   if (err instanceof HTTPException)
     return c.json({ error: err.message }, err.status);
   if (err instanceof ZodError)
@@ -305,55 +318,57 @@ app.post("/api/instagram/connect", async (c) => {
   return c.json({ url: url.toString() });
 });
 app.get("/api/instagram/callback", async (c) => {
-  const session = await getSession(c.env, c.req.raw);
-  if (!session)
-    throw new HTTPException(401, {
-      message: "Owner session expired. Sign in and connect again.",
-    });
+  const session = await atStage("oauth_session", () =>
+    getSession(c.env, c.req.raw),
+  );
+  if (!session) throw new OperationError("oauth_session", 401);
   const state = c.req.query("state");
-  if (!state) throw new HTTPException(400, { message: "Missing OAuth state." });
-  const row = await c.env.DB.prepare(
-    "DELETE FROM oauth_states WHERE state_hash=? AND session_hash=? AND expires_at>? RETURNING state_hash",
-  )
-    .bind(await sha256(state), session.hash, Date.now())
-    .first();
-  if (!row)
-    throw new HTTPException(403, {
-      message: "Invalid or expired OAuth state.",
-    });
+  if (!state) throw new OperationError("oauth_state", 400);
+  const row = await atStage("oauth_state", async () =>
+    c.env.DB.prepare(
+      "DELETE FROM oauth_states WHERE state_hash=? AND session_hash=? AND expires_at>? RETURNING state_hash",
+    )
+      .bind(await sha256(state), session.hash, Date.now())
+      .first(),
+  );
+  if (!row) throw new OperationError("oauth_state", 403);
   if (c.req.query("error"))
     return c.redirect(`${c.env.APP_ORIGIN}/?connection=denied`);
   const code = c.req.query("code");
-  if (!code)
-    throw new HTTPException(400, { message: "Missing authorization code." });
-  await withLease(c.env, async (lease) => {
-    if (
-      await c.env.DB.prepare(
-        `SELECT id FROM jobs WHERE state IN(${ACTIVE})`,
-      ).first()
-    )
-      throw new HTTPException(409, {
-        message: "Resolve or cancel the active job before reconnecting.",
-      });
-    const data = await new Instagram(c.env).exchange(code);
-    const cipher = await encryptToken(c.env, data.access_token);
-    await lease.assert();
-    await c.env.DB.batch([
-      c.env.DB.prepare(
-        "INSERT INTO accounts(id,instagram_id,username,token_cipher,expires_at,refreshed_at,status) VALUES(1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET instagram_id=excluded.instagram_id,username=excluded.username,token_cipher=excluded.token_cipher,expires_at=excluded.expires_at,refreshed_at=excluded.refreshed_at,status=excluded.status",
-      ).bind(
-        data.id,
-        data.username,
-        cipher,
-        Date.now() + data.expires_in * 1000,
-        Date.now(),
-        "connected",
-      ),
-      c.env.DB.prepare(
-        "UPDATE settings SET enabled=0,pause_reason='Account connected. Enable the schedule when ready.' WHERE id=1",
-      ),
-    ]);
-  });
+  if (!code) throw new OperationError("oauth_code", 400);
+  await atStage("oauth_persistence", () =>
+    withLease(c.env, async (lease) => {
+      if (
+        await c.env.DB.prepare(
+          `SELECT id FROM jobs WHERE state IN(${ACTIVE})`,
+        ).first()
+      )
+        throw new HTTPException(409, {
+          message: "Resolve or cancel the active job before reconnecting.",
+        });
+      const data = await new Instagram(c.env).exchange(code);
+      const cipher = await atStage("oauth_encryption", () =>
+        encryptToken(c.env, data.access_token),
+      );
+      await lease.assert();
+      await c.env.DB.batch([
+        c.env.DB.prepare(
+          `INSERT INTO accounts(id,instagram_id,username,token_cipher,expires_at,refreshed_at,status) SELECT 1,?,?,?,?,?,? WHERE ${lease.guard()} ON CONFLICT(id) DO UPDATE SET instagram_id=excluded.instagram_id,username=excluded.username,token_cipher=excluded.token_cipher,expires_at=excluded.expires_at,refreshed_at=excluded.refreshed_at,status=excluded.status`,
+        ).bind(
+          data.id,
+          data.username,
+          cipher,
+          Date.now() + data.expires_in * 1000,
+          Date.now(),
+          "connected",
+        ),
+        c.env.DB.prepare(
+          `UPDATE settings SET enabled=0,pause_reason='Account connected. Enable the schedule when ready.' WHERE id=1 AND ${lease.guard()}`,
+        ),
+      ]);
+      await lease.assert();
+    }),
+  );
   return c.redirect(`${c.env.APP_ORIGIN}/?connection=success`);
 });
 app.post("/api/instagram/disconnect", async (c) => {
@@ -458,42 +473,46 @@ app.post("/api/uploads/:id/complete", async (c) => {
         .array(
           z.object({
             partNumber: z.number().int().min(1),
-            etag: z.string().min(1).max(128),
+            etag: z.string().min(1).max(256),
           }),
         )
         .max(10000)
         .optional(),
     })
     .parse(await c.req.json());
-  await withLease(c.env, async () => {
-    const v = await c.env.DB.prepare("SELECT * FROM videos WHERE id=?")
-      .bind(c.req.param("id"))
-      .first<Video>();
-    if (!v) throw new HTTPException(404, { message: "Upload not found." });
-    if (v.status === "ready") return;
-    if (v.status !== "uploading")
-      throw new HTTPException(409, { message: "Upload is being deleted." });
-    if (v.multipart_id) {
-      const head = await c.env.VIDEOS.head(`staging/${v.id}`);
-      if (!head) {
-        if (
-          !parts ||
-          parts.length !== Math.ceil(v.size_bytes / PART_SIZE) ||
-          parts.some((p, i) => p.partNumber !== i + 1)
-        )
-          throw new HTTPException(400, {
-            message: "Provide every uploaded part in order.",
-          });
-        await c.env.VIDEOS.resumeMultipartUpload(
-          `staging/${v.id}`,
-          v.multipart_id,
-        ).complete(
-          parts.map((p) => ({ ...p, etag: p.etag.replace(/^"|"$/g, "") })),
-        );
-      }
-    }
-    await verifyUpload(c.env, v);
-  });
+  await atStage("upload_persistence", () =>
+    withLease(c.env, async (lease) => {
+      const v = await c.env.DB.prepare("SELECT * FROM videos WHERE id=?")
+        .bind(c.req.param("id"))
+        .first<Video>();
+      if (!v) throw new HTTPException(404, { message: "Upload not found." });
+      if (v.status === "ready") return;
+      if (v.status !== "uploading")
+        throw new HTTPException(409, { message: "Upload is being deleted." });
+      await atStage("upload_multipart", async () => {
+        if (v.multipart_id) {
+          const head = await c.env.VIDEOS.head(`staging/${v.id}`);
+          if (!head) {
+            if (
+              !parts ||
+              parts.length !== Math.ceil(v.size_bytes / PART_SIZE) ||
+              parts.some((p, i) => p.partNumber !== i + 1)
+            )
+              throw new HTTPException(400, {
+                message: "Provide every uploaded part in order.",
+              });
+            await c.env.VIDEOS.resumeMultipartUpload(
+              `staging/${v.id}`,
+              v.multipart_id,
+            ).complete(
+              parts.map((p) => ({ ...p, etag: p.etag.replace(/^"|"$/g, "") })),
+            );
+          }
+        }
+      });
+      await verifyUpload(c.env, v, undefined, lease);
+    }),
+  );
   return c.json({ ok: true });
 });
 app.delete("/api/uploads/:id", async (c) => {

@@ -1,4 +1,12 @@
-import { beforeAll, beforeEach, afterAll, describe, it, expect } from "vitest";
+import {
+  beforeAll,
+  beforeEach,
+  afterAll,
+  describe,
+  it,
+  expect,
+  vi,
+} from "vitest";
 import { init, reset, mf, env, now, video, account, advance } from "./fixture";
 import { app } from "../worker/index";
 import { parseRange, validMagic, verifyUpload } from "../worker/storage";
@@ -58,6 +66,37 @@ describe("authenticated API and R2 integration", () => {
     csrf = "";
   });
   afterAll(async () => await mf.dispose());
+  it("redirects HTTP pages to the trusted HTTPS origin and rejects HTTP credentials before persistence", async () => {
+    const page = await app.fetch(
+      new Request("http://untrusted.example/?tab=settings"),
+      env,
+    );
+    expect(page.status).toBe(308);
+    expect(page.headers.get("location")).toBe(
+      "https://reelloop.example/?tab=settings",
+    );
+    const login = await app.fetch(
+      new Request("http://reelloop.example/api/auth/login", {
+        method: "POST",
+        headers: { Origin: env.APP_ORIGIN, "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "test-password-only" }),
+      }),
+      env,
+    );
+    expect(login.status).toBe(400);
+    expect(login.headers.has("set-cookie")).toBe(false);
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) n FROM sessions").first("n"),
+    ).toBe(0);
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) n FROM rate_limits").first("n"),
+    ).toBe(0);
+    const local = await app.fetch(new Request("http://127.0.0.1:8787/"), {
+      ...env,
+      APP_ORIGIN: "http://127.0.0.1:8787",
+    });
+    expect(local.status).toBe(200);
+  });
   it("protects every administrative route without a session", async () => {
     for (const [path, method] of [
       ["/api/dashboard", "GET"],
@@ -266,6 +305,92 @@ describe("authenticated API and R2 integration", () => {
     await expect(verifyUpload(env, v, async () => {})).rejects.toThrow(
       "MP4/MOV",
     );
+  });
+  it("preserves pending objects if the finalization lease expires during promotion", async () => {
+    const v = await video("expired", 0, "uploading");
+    await env.VIDEOS.put("staging/expired", container());
+    await expect(
+      withLease(env, (lease) =>
+        verifyUpload(
+          env,
+          v,
+          async () => {
+            await env.VIDEOS.put("videos/expired", container());
+            advance(120001);
+          },
+          lease,
+        ),
+      ),
+    ).rejects.toThrow("database finalization");
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT status FROM videos WHERE id='expired'",
+        ).first()
+      )?.status,
+    ).toBe("uploading");
+    expect(await env.VIDEOS.head("staging/expired")).not.toBeNull();
+  });
+  it("keeps ready durable when staging deletion fails", async () => {
+    const v = await video("cleanup", 0, "uploading");
+    await env.VIDEOS.put("staging/cleanup", container());
+    vi.spyOn(env.VIDEOS, "delete").mockRejectedValue(
+      new Error("test storage failure"),
+    );
+    await verifyUpload(env, v, async () => {
+      await env.VIDEOS.put("videos/cleanup", container());
+    });
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT status FROM videos WHERE id='cleanup'",
+        ).first()
+      )?.status,
+    ).toBe("ready");
+    expect(await env.VIDEOS.head("videos/cleanup")).not.toBeNull();
+  });
+  it("reports token encryption failure without persisting the account or logging secrets", async () => {
+    await login();
+    const connect = await request("/api/instagram/connect", "POST", {});
+    const state = new URL(
+      ((await connect.json()) as { url: string }).url,
+    ).searchParams.get("state");
+    const oldKey = env.TOKEN_ENCRYPTION_KEY;
+    env.TOKEN_ENCRYPTION_KEY = "invalid-test-key";
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json({
+          access_token: "test-sensitive-token",
+          expires_in: 3600,
+          user_id: "123",
+          username: "test",
+        }),
+      );
+    // Each response needs a fresh readable body.
+    fetchMock.mockImplementation(async () =>
+      Response.json({
+        access_token: "test-sensitive-token",
+        expires_in: 3600,
+        user_id: "123",
+        username: "test",
+      }),
+    );
+    const logs = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const res = await request(
+        "/api/instagram/callback?state=" + state + "&code=test-sensitive-code",
+      );
+      expect(res.status).toBe(500);
+      expect(((await res.json()) as { stage: string }).stage).toBe(
+        "oauth_encryption",
+      );
+      expect(await env.DB.prepare("SELECT * FROM accounts").first()).toBeNull();
+      expect(JSON.stringify(logs.mock.calls)).not.toContain("test-sensitive");
+      expect(JSON.stringify(logs.mock.calls)).not.toContain("invalid-test-key");
+    } finally {
+      env.TOKEN_ENCRYPTION_KEY = oldKey;
+    }
   });
   it("serves signed job-specific media with GET, HEAD, suffix and invalid ranges", async () => {
     const v = await video();
