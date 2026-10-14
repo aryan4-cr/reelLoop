@@ -22,6 +22,7 @@ export interface MetaAdapter {
     token: string,
     url: string,
     caption: string,
+    cover?: { cover_url?: string; thumb_offset?: number },
   ): Promise<string>;
   status(container: string, token: string): Promise<string>;
   publish(account: string, token: string, container: string): Promise<string>;
@@ -101,12 +102,23 @@ export class Instagram implements MetaAdapter {
     token: string,
     url: string,
     caption: string,
+    cover?: { cover_url?: string; thumb_offset?: number },
   ) {
     const data = await this.request<{ id: string }>(
       `${account}/media`,
       token,
       "POST",
-      { media_type: "REELS", video_url: url, caption, share_to_feed: "true" },
+      {
+        media_type: "REELS",
+        video_url: url,
+        caption,
+        share_to_feed: "true",
+        ...(cover?.cover_url
+          ? { cover_url: cover.cover_url }
+          : cover?.thumb_offset !== undefined
+            ? { thumb_offset: String(cover.thumb_offset) }
+            : {}),
+      },
     );
     if (!data.id) throw new MetaError(0, true, true);
     return data.id;

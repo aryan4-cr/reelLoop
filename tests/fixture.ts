@@ -36,10 +36,15 @@ export async function init() {
     META_APP_ID: "test",
     META_APP_SECRET: "test",
   } as unknown as Env;
-  const sql = readFileSync(
-    new URL("../migrations/0001_initial.sql", import.meta.url),
-    "utf8",
-  ).replace(/^\uFEFF/, "");
+  const sql =
+    readFileSync(
+      new URL("../migrations/0001_initial.sql", import.meta.url),
+      "utf8",
+    ).replace(/^\uFEFF/, "") +
+    readFileSync(
+      new URL("../migrations/0002_bulk_reel_settings.sql", import.meta.url),
+      "utf8",
+    );
   await env.DB.batch(
     sql
       .split(";")
@@ -52,6 +57,9 @@ export async function reset() {
   vi.restoreAllMocks();
   now = 1800000000000;
   vi.spyOn(Date, "now").mockImplementation(() => now);
+  await env.DB.prepare(
+    "UPDATE settings SET default_caption='',default_cover_id=NULL",
+  ).run();
   await env.DB.batch(
     [
       "job_events",
@@ -61,6 +69,7 @@ export async function reset() {
       "sessions",
       "oauth_states",
       "rate_limits",
+      "covers",
     ].map((t) => env.DB.prepare(`DELETE FROM ${t}`)),
   );
   await env.DB.prepare(

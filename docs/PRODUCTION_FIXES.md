@@ -1,6 +1,6 @@
 # OAuth and upload incident — 14 October 2026
 
-Status: fixes prepared locally; production deployment requires new owner approval. Target remains `my-worker` at https://my-worker.reelloop.workers.dev, using the existing D1 database and private R2 bucket. No production mutations or publication were performed during diagnosis.
+Status: deployed with owner approval as Worker version `39809435-9ad9-4c61-a8e3-4cd2422b579a`. The owner confirmed a fresh Instagram connection and a real MP4 saved in the library. Target remains `my-worker` at https://my-worker.reelloop.workers.dev, using the existing D1 database and private R2 bucket. No production mutations or publication were performed during diagnosis.
 
 ## Reproduced failures
 
@@ -12,7 +12,7 @@ Status: fixes prepared locally; production deployment requires new owner approva
 
 The two defects were reproduced using the actual integration code in Cloudflare's local runtime, without real credentials, Meta calls or production media. Existing tests injected a copy callback and ran the adapter in Node; they did not exercise browser-target SDK XML parsing or the native Worker fetch receiver. The new runtime suite covers both gaps.
 
-Historical production exceptions were not retained because observability is disabled to avoid recording sensitive callback/signed URL query strings. The screenshot alone cannot establish the historical provider status or exclude another simultaneous fault. The code defects are deterministic and consistent with the symptoms; successful live OAuth and finalization still require post-deployment verification.
+Historical production exceptions were not retained because observability is disabled to avoid recording sensitive callback/signed URL query strings. The screenshot alone cannot establish the historical provider status or exclude another simultaneous fault. The code defects are deterministic and consistent with the symptoms; the owner subsequently confirmed successful live OAuth and real-video finalization after deployment.
 
 ## OAuth stages and configuration
 
@@ -41,3 +41,7 @@ Video bytes still upload directly to private R2. The Worker reads only 32 header
 - After owner approval: deploy the reviewed commit, repeat HTTPS/authentication checks, start a fresh Instagram connection, and finalize one owner-selected video. Record actual stage/status if it fails. Do not enable cron, start publishing or create a Reel. Stop if the Free plan cannot safely run the operations; no automatic upgrade.
 
 References: [Cloudflare native fetch receiver issue](https://github.com/cloudflare/workerd/issues/6904), [R2 multipart usage](https://developers.cloudflare.com/r2/api/workers/workers-multipart-usage/), [Meta Instagram Login](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/business-login), [Meta official Instagram collection](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api).
+
+## Deployment result
+
+Commit `74535ad` deployed successfully on 14 October 2026. HTTPS returned 200 with HSTS and anonymous dashboard access returned 401. The owner confirmed Instagram connected and the video uploaded and persisted. A later read-only query found one account, one ready video, one skipped manual job and publishing disabled. No publishing job was executed by this task. Sustained load, exact production CPU timings and actual Instagram publication remain unverified.

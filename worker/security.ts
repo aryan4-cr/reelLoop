@@ -149,3 +149,10 @@ export async function mediaSignature(env: Env, jobId: string, expires: number) {
 export async function mediaUrl(env: Env, jobId: string, expires: number) {
   return `${env.PUBLIC_ORIGIN}/media/${jobId}?expires=${expires}&sig=${await mediaSignature(env, jobId, expires)}`;
 }
+
+export async function coverSignature(env: Env, jobId: string, expires: number) {
+  return mediaSignature(env, "cover:" + jobId, expires);
+}
+export async function coverUrl(env: Env, jobId: string, expires: number) {
+  return `${env.PUBLIC_ORIGIN}/cover-media/${jobId}?expires=${expires}&sig=${await coverSignature(env, jobId, expires)}`;
+}

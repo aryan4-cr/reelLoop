@@ -34,6 +34,17 @@ function client(env: Env) {
     responseChecksumValidation: "WHEN_REQUIRED",
   });
 }
+export async function coverUploadUrl(env: Env, id: string) {
+  return getSignedUrl(
+    client(env),
+    new PutObjectCommand({
+      Bucket: env.R2_BUCKET_NAME,
+      Key: `staging/covers/${id}`,
+      ContentType: "image/jpeg",
+    }),
+    { expiresIn: 900 },
+  );
+}
 export async function uploadUrl(env: Env, v: Video, part?: number) {
   const command = v.multipart_id
     ? new UploadPartCommand({

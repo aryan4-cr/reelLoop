@@ -1,3 +1,4 @@
+import { coverPreview } from "./covers";
 import {
   useState,
   useEffect,
@@ -273,13 +274,18 @@ export function EditVideo({
   onClose,
   onSave,
   busy,
+  defaultCaption,
+  coverEditor,
 }: {
   video: PublicVideo;
   onClose: () => void;
   onSave: (v: unknown) => void;
   busy: boolean;
+  defaultCaption: string;
+  coverEditor: ReactNode;
 }) {
   const [name, setName] = useState(video.name),
+    [captionMode, setCaptionMode] = useState("keep"),
     [caption, setCaption] = useState(video.caption),
     [hashtags, setHashtags] = useState(video.hashtags),
     [enabled, setEnabled] = useState(Boolean(video.enabled));
@@ -288,7 +294,13 @@ export function EditVideo({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onSave({ name, caption, hashtags, enabled });
+          onSave({
+            name,
+            caption,
+            hashtags,
+            enabled,
+            caption_mode: captionMode,
+          });
         }}
       >
         <label>
@@ -304,9 +316,12 @@ export function EditVideo({
           Caption
           <textarea
             value={caption}
-            maxLength={2200}
+            maxLength={8800}
             rows={5}
-            onChange={(e) => setCaption(e.target.value)}
+            onChange={(e) => {
+              setCaption(e.target.value);
+              setCaptionMode("override");
+            }}
             placeholder="Tell the story behind this Reel…"
           />
         </label>
@@ -315,7 +330,10 @@ export function EditVideo({
           <input
             value={hashtags}
             maxLength={1000}
-            onChange={(e) => setHashtags(e.target.value)}
+            onChange={(e) => {
+              setHashtags(e.target.value);
+              setCaptionMode("override");
+            }}
             placeholder="#reels #yourstory"
           />
         </label>
@@ -323,6 +341,21 @@ export function EditVideo({
           {[caption, hashtags].filter(Boolean).join("\n\n").length}/2,200
           characters including hashtags
         </small>
+        <Button
+          onClick={() => {
+            setCaption(defaultCaption);
+            setHashtags("");
+            setCaptionMode("default");
+          }}
+        >
+          Reset caption to global default
+        </Button>
+        <div className="caption-preview">
+          <strong>Final Instagram caption preview</strong>
+          <p>
+            {[caption, hashtags].filter(Boolean).join("\n\n") || "No caption"}
+          </p>
+        </div>
         <label className="checkbox">
           <input
             type="checkbox"
@@ -338,6 +371,7 @@ export function EditVideo({
           </Button>
         </div>
       </form>
+      {coverEditor}
     </Modal>
   );
 }
@@ -360,6 +394,20 @@ export function TestPublish({
         <p>
           This will create a real public post on your connected Instagram
           account. It is not a simulation.
+        </p>
+      </div>
+      {video.cover_id && (
+        <img
+          className="publish-cover-preview"
+          src={coverPreview(video.cover_id)}
+          alt="Cover snapshot preview"
+        />
+      )}
+      <div className="caption-preview">
+        <strong>Final caption</strong>
+        <p>
+          {[video.caption, video.hashtags].filter(Boolean).join("\n\n") ||
+            "No caption"}
         </p>
       </div>
       <div className="test-video">

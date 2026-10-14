@@ -27,10 +27,24 @@ export const settingsSchema = z.object({
   mode: z.enum(["loop", "once"]),
   cooldown_minutes: z.number().int().min(0).max(525600),
 });
+export const captionText = z
+  .string()
+  .refine(
+    (v) => [...v].length <= 2200,
+    "Caption and hashtags must total at most 2,200 characters.",
+  )
+  .refine(
+    (v) => (v.match(/#[\p{L}\p{N}_]+/gu) || []).length <= 30,
+    "At most 30 hashtags across the full caption.",
+  )
+  .refine(
+    (v) => (v.match(/@[\p{L}\p{N}_.]+/gu) || []).length <= 20,
+    "At most 20 mentions across the full caption.",
+  );
 export const videoSchema = z
   .object({
     name: z.string().trim().min(1).max(160),
-    caption: z.string().max(2200),
+    caption: z.string().max(8800),
     hashtags: z
       .string()
       .max(1000)
@@ -44,12 +58,14 @@ export const videoSchema = z
         "Use space-separated hashtags.",
       ),
     enabled: z.boolean(),
+    caption_mode: z.enum(["keep", "default", "override"]).default("keep"),
   })
-  .refine(
-    (v) => [v.caption, v.hashtags].filter(Boolean).join("\n\n").length <= 2200,
-    "Caption and hashtags must total at most 2,200 characters.",
-  )
-  .refine(
-    (v) => (v.hashtags.match(/#/g) || []).length <= 30,
-    "At most 30 hashtags.",
-  );
+  .superRefine((v, ctx) => {
+    const result = captionText.safeParse(
+      [v.caption, v.hashtags].filter(Boolean).join("\n\n"),
+    );
+    if (!result.success)
+      result.error.issues.forEach((i) =>
+        ctx.addIssue({ code: "custom", message: i.message }),
+      );
+  });

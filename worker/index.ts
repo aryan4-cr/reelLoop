@@ -1,3 +1,4 @@
+import { bulk, requireCover } from "./bulk";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
@@ -21,6 +22,7 @@ import {
   encryptToken,
   decryptToken,
   mediaSignature,
+  coverSignature,
 } from "./security";
 import { BusyError, withLease } from "./lease";
 import { Instagram, MetaError } from "./instagram";
@@ -121,6 +123,7 @@ app.use("/api/*", async (c, next) => {
   }
   await next();
 });
+app.route("/api", bulk);
 app.post("/api/auth/login", async (c) => {
   requireOrigin(c.env, c.req.raw);
   await rateLimit(c.env, "login:global", 20, 900000);
@@ -175,6 +178,7 @@ app.get("/api/dashboard", async (c) => {
     c.env.DB.prepare(
       "SELECT COUNT(*) total, SUM(CASE WHEN state='succeeded' THEN 1 ELSE 0 END) success, SUM(CASE WHEN state IN('failed','uncertain') THEN 1 ELSE 0 END) errors FROM jobs",
     ),
+    c.env.DB.prepare("SELECT COALESCE(SUM(size_bytes),0) bytes FROM covers"),
   ]);
   const settings = result[0].results[0] as unknown as Settings;
   const { lease_token, lease_until, ...publicSettings } = settings;
@@ -198,7 +202,9 @@ app.get("/api/dashboard", async (c) => {
     ),
     stats: result[4].results[0],
     storage: {
-      used: videos.reduce((n, v) => n + v.size_bytes, 0),
+      used:
+        videos.reduce((n, v) => n + v.size_bytes, 0) +
+        Number((result[5].results[0] as { bytes: number })?.bytes ?? 0),
       limit: Number(c.env.MAX_STORAGE_BYTES) || 10737418240,
     },
     upcoming: upcoming(videos, settings, Date.now()),
@@ -399,7 +405,7 @@ app.post("/api/uploads", async (c) => {
     });
   const result = await withLease(c.env, async () => {
     const usage = await c.env.DB.prepare(
-      "SELECT COALESCE(SUM(size_bytes),0) bytes,COUNT(*) total FROM videos",
+      "SELECT COALESCE(SUM(size_bytes),0)+(SELECT COALESCE(SUM(size_bytes),0) FROM covers) bytes,COUNT(*) total FROM videos",
     ).first<{ bytes: number; total: number }>();
     if (
       (usage?.bytes ?? 0) + input.size_bytes >
@@ -421,7 +427,7 @@ app.post("/api/uploads", async (c) => {
         : null;
     try {
       await c.env.DB.prepare(
-        "INSERT INTO videos(id,object_key,name,content_type,size_bytes,duration_seconds,width,height,position,multipart_id,created_at) VALUES(?,?,?,?,?,?,?,?,(SELECT COALESCE(MAX(position),-1)+1 FROM videos),?,?)",
+        "INSERT INTO videos(id,object_key,name,content_type,size_bytes,duration_seconds,width,height,position,multipart_id,created_at,caption,cover_id) VALUES(?,?,?,?,?,?,?,?,(SELECT COALESCE(MAX(position),-1)+1 FROM videos),?,?,(SELECT default_caption FROM settings WHERE id=1),(SELECT default_cover_id FROM settings WHERE id=1))",
       )
         .bind(
           id,
@@ -536,14 +542,33 @@ app.delete("/api/uploads/:id", async (c) => {
 });
 app.patch("/api/videos/:id", async (c) => {
   const v = videoSchema.parse(await c.req.json());
-  await withLease(c.env, async () => {
-    const row = await c.env.DB.prepare(
-      "UPDATE videos SET name=?,caption=?,hashtags=?,enabled=? WHERE id=? AND status='ready' RETURNING id",
+  await withLease(c.env, async (lease) => {
+    const old = await c.env.DB.prepare(
+      "SELECT * FROM videos WHERE id=? AND status='ready'",
     )
-      .bind(v.name, v.caption, v.hashtags, v.enabled ? 1 : 0, c.req.param("id"))
-      .first();
-    if (!row)
+      .bind(c.req.param("id"))
+      .first<Video>();
+    if (!old)
       throw new HTTPException(404, { message: "Verified video not found." });
+    const settings = (await c.env.DB.prepare(
+      "SELECT * FROM settings WHERE id=1",
+    ).first<Settings>())!;
+    const caption =
+      v.caption_mode === "default" ? settings.default_caption : v.caption;
+    const hashtags = v.caption_mode === "default" ? "" : v.hashtags;
+    const override =
+      v.caption_mode === "default"
+        ? 0
+        : v.caption_mode === "override" ||
+            caption !== old.caption ||
+            hashtags !== old.hashtags
+          ? 1
+          : old.caption_override;
+    await c.env.DB.prepare(
+      `UPDATE videos SET name=?,caption=?,hashtags=?,caption_override=?,enabled=? WHERE id=? AND status='ready' AND ${lease.guard()}`,
+    )
+      .bind(v.name, caption, hashtags, override, v.enabled ? 1 : 0, old.id)
+      .run();
   });
   return c.json({ ok: true });
 });
@@ -804,6 +829,31 @@ app.on(["GET", "HEAD"], "/media/:id", async (c) => {
   if (!v)
     throw new HTTPException(404, { message: "Media no longer available." });
   return serveObject(c.env, c.req.raw, job.object_key, v.content_type);
+});
+app.on(["GET", "HEAD"], "/cover-media/:id", async (c) => {
+  const id = c.req.param("id"),
+    expires = Number(c.req.query("expires"));
+  if (
+    !Number.isSafeInteger(expires) ||
+    expires <= Date.now() ||
+    !safeEqual(
+      c.req.query("sig") ?? "",
+      await coverSignature(c.env, id, expires),
+    )
+  )
+    throw new HTTPException(403, {
+      message: "Cover link is invalid or expired.",
+    });
+  const job = await mediaJob(c.env, id);
+  if (
+    !job ||
+    !job.cover_id ||
+    job.media_expires_at !== expires ||
+    ["failed", "skipped"].includes(job.state)
+  )
+    throw new HTTPException(404, { message: "Cover is unavailable." });
+  const cover = await requireCover(c.env, job.cover_id);
+  return serveObject(c.env, c.req.raw, cover!.object_key, "image/jpeg");
 });
 app.all("/api/*", (c) => c.json({ error: "Endpoint not found." }, 404));
 app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));

@@ -1,3 +1,5 @@
+import { requireCover } from "./bulk";
+import { captionText } from "./validation";
 import {
   ACTIVE,
   type Env,
@@ -9,7 +11,7 @@ import {
 import { selectNext, nextSlot, backoff } from "./queue";
 import { withLease, type Lease, BusyError } from "./lease";
 import { Instagram, MetaError, type MetaAdapter } from "./instagram";
-import { decryptToken, encryptToken, mediaUrl } from "./security";
+import { decryptToken, encryptToken, mediaUrl, coverUrl } from "./security";
 export async function event(
   env: Env,
   id: string,
@@ -131,11 +133,15 @@ export async function createJob(
   scheduled: number,
 ) {
   await lease.assert();
+  captionText.parse(
+    [video.caption, video.hashtags].filter(Boolean).join("\n\n"),
+  );
+  await requireCover(env, video.cover_id);
   const id = crypto.randomUUID();
   const now = Date.now();
   const expires = now + 24 * 3600000;
   await env.DB.prepare(
-    `INSERT INTO jobs(id,video_id,video_name,object_key,caption,scheduled_at,created_at,state,manual,media_expires_at,account_id,position) SELECT ?,?,?,?,?,?,?,'queued',?,?,?,? WHERE ${lease.guard()}`,
+    `INSERT INTO jobs(id,video_id,video_name,object_key,caption,scheduled_at,created_at,state,manual,media_expires_at,account_id,position,cover_id,thumb_offset_ms) SELECT ?,?,?,?,?,?,?,'queued',?,?,?,?,?,? WHERE ${lease.guard()}`,
   )
     .bind(
       id,
@@ -149,6 +155,8 @@ export async function createJob(
       expires,
       account.instagram_id,
       video.position,
+      video.cover_id ?? null,
+      video.thumb_offset_ms ?? 0,
     )
     .run();
   await event(
@@ -308,11 +316,15 @@ export async function tick(
           else await change(env, lease, job, "creating", { attempts: 1 });
           attemptedCreate = true;
           const url = await mediaUrl(env, job.id, job.media_expires_at);
+          await requireCover(env, job.cover_id);
           const container = await adapter.createContainer(
             account.instagram_id,
             token,
             url,
             job.caption,
+            job.cover_id
+              ? { cover_url: await coverUrl(env, job.id, job.media_expires_at) }
+              : { thumb_offset: job.thumb_offset_ms ?? 0 },
           );
           await change(env, lease, job, "processing", {
             container,

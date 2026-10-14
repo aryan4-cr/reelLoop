@@ -17,6 +17,8 @@ export interface Env {
   MAX_STORAGE_BYTES: string;
 }
 export interface Settings {
+  default_caption: string;
+  default_cover_id: string | null;
   id: number;
   enabled: number;
   interval_minutes: number;
@@ -32,6 +34,10 @@ export interface Settings {
   lease_until: number;
 }
 export interface Video {
+  caption_override: number;
+  cover_id: string | null;
+  cover_override: number;
+  thumb_offset_ms: number;
   id: string;
   object_key: string;
   name: string;
@@ -59,6 +65,8 @@ export interface Account {
   status: string;
 }
 export interface Job {
+  cover_id: string | null;
+  thumb_offset_ms: number;
   id: string;
   video_id: string | null;
   video_name: string;
@@ -81,3 +89,14 @@ export interface Job {
 }
 export const ACTIVE =
   "'queued','creating','processing','ready','publishing','uncertain'";
+export interface Cover {
+  id: string;
+  object_key: string;
+  sha256: string | null;
+  name: string;
+  size_bytes: number;
+  width: number;
+  height: number;
+  status: "uploading" | "ready" | "deleting";
+  created_at: number;
+}

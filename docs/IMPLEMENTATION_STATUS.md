@@ -1,11 +1,11 @@
 # Implementation and verification status
 
-Recorded 14 October 2026 (Asia/Kolkata). **The initial deployment is live, but owner-reported OAuth and real-video finalization failures were subsequently reproduced. Fixes are prepared locally and await fresh deployment approval. Publishing is PAUSED, cron is DISABLED, and no Instagram content was published.**
+Recorded 14 October 2026 (Asia/Kolkata). **OAuth and real-video upload fixes are deployed and confirmed working by the owner. Bulk caption/cover features are implemented and approved for deployment; rollout details follow below. Publishing is PAUSED, cron is DISABLED, and this task has not published Instagram content.**
 
 ## Production target and authorization
 
 - URL: https://my-worker.reelloop.workers.dev
-- Worker: my-worker; deployment version `ea51b7a0-9f61-48e7-b6bc-dc0e847954e5`.
+- Worker: my-worker; runtime-fix deployment version `39809435-9ad9-4c61-a8e3-4cd2422b579a`.
 - Account ID: `d0b25c7d1d5d01fe584982892e6a4e94`.
 - Owner explicitly approved deployment and confirmed Workers Free ACTIVE plus R2 usage-based subscription ACTIVE. No plan upgrades or additional paid services were introduced.
 - Reused D1 `reelloop-db` / `289411ef-6f89-40b5-bcaf-69e33dfffb78` and R2 `reelloop-videos`. No duplicate database/bucket or unrelated Worker was created.
@@ -40,7 +40,7 @@ Recorded 14 October 2026 (Asia/Kolkata). **The initial deployment is live, but o
 - Existing Instagram Login scopes: instagram_business_basic and instagram_business_content_publish, corroborated by Meta's official Postman collection.
 - The official developer docs/changelog returned login/429 errors during research. Configured v25.0 is retained; newest version and app-specific support remain unverified.
 - Owner must register the exact callback in Meta's Instagram Business login settings, ensure the Creator account has an accepted app/tester role in development mode, then use Connect Instagram in ReelLoop. See META_SETUP.md.
-- Creator OAuth, real video finalization, a successful real Reel and long-running schedule acceptance are **not verified**. Publishing and cron activation require separate explicit owner approval. No published media ID or live integration success is claimed.
+- Creator OAuth and real-video finalization are confirmed by the owner after the runtime-fix deployment. A successful real Reel and long-running schedule acceptance remain **not verified**. Publishing and cron activation require separate explicit owner approval. No published media ID or live integration success is claimed.
 
 ## Operating notes
 
@@ -49,12 +49,12 @@ Recorded 14 October 2026 (Asia/Kolkata). **The initial deployment is live, but o
 - Cloudflare subscription API access was denied by the current OAuth scope; plan confirmation came directly from the owner's Billing > Subscriptions inspection.
 - Keep the existing encryption key backed up securely. Do not commit .dev.vars, .env, sessions, tokens or signed URLs.
 
-## OAuth/upload incident and pending fixes (14 October 2026)
+## OAuth/upload incident and deployed fixes (14 October 2026)
 
 - See [PRODUCTION_FIXES.md](PRODUCTION_FIXES.md) for reproduced stages, code changes, evidence limits and rollout checks. No production configuration, secrets, migration, data or object changes were made during this investigation.
 - Local workerd reproduced OAuth's native fetch receiver error before the first code-exchange request (zero outbound requests), and CopyObject response deserialization failing because DOMParser does not exist in Workers (one intercepted copy request). These deterministic defects match the reported symptoms; historical production traces were not retained.
 - Fixed native fetch binding, selected the existing DOM-free AWS XML parser, added sanitized stage errors, preserved failed finalizations for retry, and fenced D1 finalization. No schema migration is needed.
 - New verification: TypeScript, 71 automated tests and production build passed. Runtime tests cover encrypted OAuth persistence, rejected/malformed provider responses, database rollback, real local 33 MiB multipart completion, failed copy recovery, lease expiry and frontend retention. All provider responses are intercepted locally.
 - Read-only production checks reconfirm enabled=0, next_publish_at=NULL, zero accounts/videos/jobs, no cron schedules, all required secret names and original bindings. R2 reports zero objects/bytes, public development URL disabled, no custom domains and the expected production CORS.
-- Production OAuth credentials, successful Meta exchange, real video finalization and their Workers Free CPU use still require verification after owner-approved deployment. Login/signing evidence above is from the earlier release. No real publishing acceptance is claimed.
-- Scope of this patch is the two explicitly requested production failures. The attached bulk caption/cover mockup remains a separate, unimplemented feature proposal.
+- The owner confirmed successful production OAuth and real-video finalization on Workers Free after deployment. Exact CPU timings and sustained load were not measured. No real publishing acceptance is claimed.
+- The subsequent approved bulk caption/cover release is implemented; see [BULK_SETTINGS.md](BULK_SETTINGS.md) for migration, security, tests and rollout. Earlier zero-record counts above describe historical checks, not current data.

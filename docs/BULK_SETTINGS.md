@@ -1,0 +1,29 @@
+# Bulk Reel Settings
+
+Open Video library. Save a default caption (emoji and hashtags together) and upload or choose a shared cover. Saving defaults affects future uploads. Apply saved settings to all or selected existing videos explicitly. Individual overrides are preserved unless the overwrite option is selected; bulk replacement/reset requires confirmation. An individual video's editor supports caption reset, saved/new covers, and a frame time when no custom image is selected.
+
+## Persistence and security
+
+- Migration `0002_bulk_reel_settings.sql` is additive. It adds covers, defaults, video override flags and job cover/frame snapshots. Existing nonempty captions become individual overrides. Existing jobs retain their original captions and receive no custom cover. It does not change pause/schedule state, delete records, or modify video objects.
+- Videos store assigned caption/cover values, so loops preserve them. Jobs snapshot caption, cover ID and frame offset. Changing defaults or video settings cannot alter a processing job.
+- Prepared images upload directly to a private staging path in R2 using an owner-authenticated reservation and signed PUT. Browser input accepts JPG/PNG up to 8 MB, at least 320 × 320 and up to 16 megapixels. Canvas re-encodes RGB JPEG, flattens transparency on white, strips metadata and scales to fit 1080 × 1920 without cropping. Prepared JPEGs are limited to 2 MB.
+- Server verification checks MIME, reserved size, JPEG structure and embedded dimensions independently of client metadata. It is bounded structural validation, not a full JPEG entropy decoder. A native SHA-256 digest deduplicates identical prepared bytes. Multiple video/job references share one permanent R2 object. Covers count toward the existing 8 GB reservation limit and are capped at 200 records.
+- Previews require the owner session. Meta receives a job-specific, domain-separated HMAC cover URL with the same 24-hour expiry as that job's video URL. Invalid, expired, failed/skipped-job links are rejected. No bucket is made public, and request query strings remain excluded from provider logging.
+- Defaults, video references and all job-history references prevent cover deletion. Clearing/replacing a default does not delete images or change existing assignments. Unreferenced covers require explicit deletion. Interrupted uploads remain visible for retry/discard; staging lifecycle rules remain in place. Permanent covers are never automatically expired.
+- Bulk changes require session, same-origin and CSRF checks and use lease-fenced transactional D1 statements. The final combined caption is limited to 2,200 Unicode code points, 30 hashtags and 20 mentions, including hashtags/mentions embedded in the caption. Instagram can impose stricter account/product limits; provider errors remain explicit.
+
+## Instagram compatibility and evidence
+
+Meta's official [v25 SDK media schema](https://github.com/facebook/facebook-python-business-sdk/blob/25.0.0/facebook_business/adobjects/iguser.py) includes `cover_url` and `thumb_offset`. The existing Instagram Login adapter now sends a signed `cover_url` when the job has a cover, otherwise the saved frame offset in milliseconds. No Facebook Login flow or additional permission is introduced. The [Instagram Login publishing documentation](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/content-publishing/) could not be retrieved during this run, so SDK schema evidence is distinguished from live account compatibility. The [media reference](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media/) is the source to recheck publishing restrictions on API upgrades.
+
+No real Instagram publication or cover acceptance is claimed. Cover and publishing integration are tested with local/mocked requests. If Meta rejects a custom cover for this account, select a video frame explicitly and review the failed job; do not silently change the cover or retry an uncertain publication.
+
+## Validation and rollout
+
+83 automated tests, TypeScript and the production build pass. The 13 Worker-runtime tests also pass against the exact Wrangler dry-run artifact (1519.10 KiB, gzip 276.17 KiB). Tests cover existing database migration, defaults/future inheritance, selection, overrides, atomic rollback, deduplication, reference protection, caption limits, signed image expiry, job snapshots, loop selection, malformed images and unauthorized requests. Local browser checks at desktop and mobile widths verified saving defaults, selecting videos and confirming bulk application. Preview videos in that isolated fixture have metadata only; production MP4 playback is not inferred from that fixture.
+
+The earlier runtime fixes were deployed as version `39809435-9ad9-4c61-a8e3-4cd2422b579a`. The owner confirmed a fresh Instagram connection and saved video upload. Read-only production verification found one account, one ready video, publishing paused and one manual job currently recorded as skipped. No job was processed by this task.
+
+The owner's latest direct message approves deploying the completed features, superseding the older attachment's separate-approval requirement. The release uses only the existing Worker, D1 and private R2 bucket, with empty cron triggers. Apply only the pending additive migration, then deploy the tested feature branch. Preserve secrets and objects. No paid service or plan upgrade is needed. Storage duplication during staging and aggregate R2 operations still consume allowances; 8 GB is not an account-wide billing cap.
+
+Rollback: restore Worker version `39809435-9ad9-4c61-a8e3-4cd2422b579a` if needed, keeping cron disabled and publishing paused. Leave the additive migration in place; the older code ignores its new columns. Do not drop tables/columns or restore older D1 data over current jobs. Inspect saved job state before any later scheduler activation.

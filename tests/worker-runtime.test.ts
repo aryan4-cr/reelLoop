@@ -128,10 +128,10 @@ describe("production Worker runtime integration", () => {
     );
     db = (await mf.getD1Database("DB")) as unknown as D1Database;
     bucket = (await mf.getR2Bucket("VIDEOS")) as unknown as R2Bucket;
-    const sql = readFileSync("migrations/0001_initial.sql", "utf8").replace(
-      /^\uFEFF/,
-      "",
-    );
+    const sql = (
+      readFileSync("migrations/0001_initial.sql", "utf8") +
+      readFileSync("migrations/0002_bulk_reel_settings.sql", "utf8")
+    ).replace(/^\uFEFF/, "");
     await db.batch(
       sql
         .split(";")
@@ -148,6 +148,7 @@ describe("production Worker runtime integration", () => {
     calls = [];
     await db.batch(
       [
+        "UPDATE settings SET default_caption='',default_cover_id=NULL",
         "DROP TRIGGER IF EXISTS reject_account",
         "DROP TRIGGER IF EXISTS reject_video",
         ...[
@@ -156,6 +157,7 @@ describe("production Worker runtime integration", () => {
           "oauth_states",
           "videos",
           "rate_limits",
+          "covers",
         ].map((t) => `DELETE FROM ${t}`),
         "UPDATE settings SET enabled=0,lease_token=NULL,lease_until=0,next_publish_at=NULL",
       ].map((s) => db.prepare(s)),
@@ -352,5 +354,26 @@ describe("production Worker runtime integration", () => {
     expect(
       (await db.prepare("SELECT enabled FROM settings").first())?.enabled,
     ).toBe(0);
+  });
+  it("finalizes a JPEG cover in native workerd and persists shared defaults", async () => {
+    const jpeg = readFileSync("tests/fixtures/cover.jpg");
+    const reserved = await request("/api/covers", {
+      name: "cover.jpg",
+      size_bytes: jpeg.length,
+    });
+    expect(reserved.status).toBe(201);
+    const { id } = (await reserved.json()) as { id: string };
+    await bucket.put(`staging/covers/${id}`, jpeg, {
+      httpMetadata: { contentType: "image/jpeg" },
+    });
+    expect((await request(`/api/covers/${id}/complete`, {})).status).toBe(200);
+    expect(
+      await db
+        .prepare("SELECT status,width,height FROM covers WHERE id=?")
+        .bind(id)
+        .first(),
+    ).toEqual({ status: "ready", width: 320, height: 480 });
+    expect((await request(`/api/covers/${id}/preview`)).status).toBe(200);
+    expect(calls).toHaveLength(0);
   });
 });

@@ -1,4 +1,258 @@
 @import "tailwindcss";
+.bulk-settings {
+  margin-bottom: 24px;
+  padding: 28px;
+}
+.bulk-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 26px;
+}
+.bulk-heading h2 {
+  font-size: 25px;
+  margin: 9px 0;
+  letter-spacing: -0.5px;
+}
+.bulk-heading p,
+.bulk-settings small,
+.bulk-settings p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.bulk-heading .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent);
+}
+.bulk-columns {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr;
+  gap: 32px;
+}
+.bulk-columns h3 {
+  font-size: 16px;
+  margin: 0 0 18px;
+}
+.cover-compose {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.cover-art {
+  width: 140px;
+  flex: 0 0 140px;
+  aspect-ratio: 9/16;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(145deg, var(--accent-dark), var(--panel-alt));
+}
+.cover-art img {
+  height: 100%;
+  width: 100%;
+  object-fit: contain;
+}
+.cover-art > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  height: 100%;
+  text-align: center;
+  color: var(--accent);
+  font-size: 13px;
+}
+.cover-controls {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  flex: 1;
+}
+.cover-controls p {
+  margin: 0;
+}
+.cover-controls label {
+  font-size: 12px;
+}
+.bulk-settings textarea {
+  width: 100%;
+  min-height: 164px;
+  resize: vertical;
+  line-height: 1.7;
+}
+.bulk-settings select {
+  max-width: 100%;
+  width: 100%;
+  font-size: 13px;
+}
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 10px;
+}
+.bulk-actions .button {
+  font-size: 12px;
+  padding: 9px 12px;
+}
+.caption-count {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.bulk-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 0 0;
+  margin-top: 22px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.bulk-footer > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.bulk-advanced {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 16px;
+  font-size: 13px;
+}
+.bulk-advanced summary {
+  cursor: pointer;
+  color: var(--soft);
+  padding: 3px 0;
+}
+.bulk-advanced label {
+  margin-top: 14px;
+}
+.bulk-notice {
+  background: var(--panel-alt);
+  padding: 12px;
+  border-radius: 8px;
+}
+.saved-covers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+}
+.saved-covers > div {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  min-width: 0;
+}
+.saved-covers img {
+  width: 100%;
+  height: 110px;
+  object-fit: contain;
+}
+.saved-covers strong {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.saved-covers .button {
+  font-size: 11px;
+}
+.library-selection {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin: 12px 0 20px;
+  font-size: 13px;
+  color: var(--soft);
+}
+.video-selection {
+  font-size: 12px;
+  margin: 0 0 12px;
+  flex-wrap: wrap;
+}
+.video-selection small {
+  font-size: 10px;
+  color: var(--muted);
+  margin-left: auto;
+}
+.video-cover-editor {
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+  padding-top: 20px;
+}
+.video-cover-editor > img,
+.publish-cover-preview {
+  width: 90px;
+  height: 160px;
+  object-fit: contain;
+  border-radius: 10px;
+  margin: 10px 0;
+}
+.caption-preview {
+  padding: 12px;
+  background: var(--panel-alt);
+  border-radius: 10px;
+  margin: 16px 0;
+}
+.caption-preview p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--soft);
+  font-size: 13px;
+}
+.caption-preview strong {
+  font-size: 12px;
+}
+@media (max-width: 1100px) {
+  .bulk-columns {
+    grid-template-columns: 1fr;
+    gap: 26px;
+  }
+  .bulk-caption {
+    border-top: 1px solid var(--line);
+    padding-top: 24px;
+  }
+}
+@media (max-width: 640px) {
+  .bulk-settings {
+    padding: 18px;
+  }
+  .bulk-heading {
+    display: block;
+  }
+  .bulk-heading > .status {
+    margin-top: 12px;
+  }
+  .cover-art {
+    width: 100px;
+    flex-basis: 100px;
+  }
+  .cover-compose {
+    gap: 14px;
+  }
+  .bulk-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .bulk-actions .button {
+    flex: 1;
+  }
+  .library-selection {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+}
 :root {
   font-family:
     Inter,

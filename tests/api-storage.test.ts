@@ -357,16 +357,14 @@ describe("authenticated API and R2 integration", () => {
     ).searchParams.get("state");
     const oldKey = env.TOKEN_ENCRYPTION_KEY;
     env.TOKEN_ENCRYPTION_KEY = "invalid-test-key";
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(
-        Response.json({
-          access_token: "test-sensitive-token",
-          expires_in: 3600,
-          user_id: "123",
-          username: "test",
-        }),
-      );
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        access_token: "test-sensitive-token",
+        expires_in: 3600,
+        user_id: "123",
+        username: "test",
+      }),
+    );
     // Each response needs a fresh readable body.
     fetchMock.mockImplementation(async () =>
       Response.json({

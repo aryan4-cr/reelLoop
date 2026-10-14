@@ -1,3 +1,5 @@
+import { BulkSettings, VideoCoverEditor } from "./BulkSettings";
+import { coverPreview } from "./covers";
 import { useState, useEffect, useRef } from "react";
 import {
   Activity,
@@ -76,6 +78,7 @@ export default function App() {
       null,
     ),
     [busy, setBusy] = useState(false),
+    [selected, setSelected] = useState<string[]>([]),
     [edit, setEdit] = useState<PublicVideo | null>(null),
     [test, setTest] = useState<PublicVideo | null>(null),
     [confirm, setConfirm] = useState<{
@@ -747,6 +750,13 @@ export default function App() {
               )}
               {tab === "library" && (
                 <>
+                  <BulkSettings
+                    data={data}
+                    selected={selected.filter((id) =>
+                      videos.some((v) => v.id === id),
+                    )}
+                    onRefresh={refresh}
+                  />
                   <div
                     className={`dropzone ${!data.configuration.uploads ? "disabled" : ""}`}
                     onDragOver={(e) => e.preventDefault()}
@@ -825,6 +835,36 @@ export default function App() {
                       {bytes(data.storage.used)} used · Drag to reorder
                     </span>
                   </div>
+                  <div className="library-selection">
+                    <label className="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={
+                          !!videos.length &&
+                          videos.every((v) => selected.includes(v.id))
+                        }
+                        onChange={(e) =>
+                          setSelected(
+                            e.target.checked ? videos.map((v) => v.id) : [],
+                          )
+                        }
+                      />{" "}
+                      Select all videos
+                    </label>
+                    <span>
+                      {
+                        selected.filter((id) => videos.some((v) => v.id === id))
+                          .length
+                      }{" "}
+                      selected
+                    </span>
+                    <button
+                      className="text-button"
+                      onClick={() => setSelected([])}
+                    >
+                      Clear selection
+                    </button>
+                  </div>
                   {!videos.length ? (
                     <section className="panel">
                       <Empty title="Make room for your creativity">
@@ -852,6 +892,11 @@ export default function App() {
                           <div className="video-preview">
                             <video
                               controls
+                              poster={
+                                v.cover_id
+                                  ? coverPreview(v.cover_id)
+                                  : undefined
+                              }
                               preload="metadata"
                               src={`/api/videos/${v.id}/preview#t=0.1`}
                               aria-label={`Preview ${v.name}`}
@@ -861,6 +906,30 @@ export default function App() {
                             </span>
                           </div>
                           <div className="video-card-body">
+                            <label className="checkbox video-selection">
+                              <input
+                                type="checkbox"
+                                aria-label={`Select ${v.name}`}
+                                checked={selected.includes(v.id)}
+                                onChange={(e) =>
+                                  setSelected((ids) =>
+                                    e.target.checked
+                                      ? [...new Set([...ids, v.id])]
+                                      : ids.filter((id) => id !== v.id),
+                                  )
+                                }
+                              />{" "}
+                              Select{" "}
+                              <small>
+                                {v.caption_override
+                                  ? "Custom caption"
+                                  : "Default caption"}{" "}
+                                ·{" "}
+                                {v.cover_override
+                                  ? "Custom cover"
+                                  : "Default cover"}
+                              </small>
+                            </label>
                             <div className="video-title">
                               <h3>{v.name}</h3>
                               <button
@@ -872,7 +941,10 @@ export default function App() {
                               </button>
                             </div>
                             <p className="video-caption">
-                              {v.caption || "Add a caption to tell your story."}
+                              {[v.caption, v.hashtags]
+                                .filter(Boolean)
+                                .join("\n\n") ||
+                                "Add a caption to tell your story."}
                             </p>
                             <div className="video-meta">
                               <span>
@@ -1196,6 +1268,17 @@ export default function App() {
       {edit && (
         <EditVideo
           video={edit}
+          defaultCaption={data?.settings.default_caption ?? ""}
+          coverEditor={
+            <VideoCoverEditor
+              id={edit.id}
+              coverId={edit.cover_id}
+              defaultCoverId={data?.settings.default_cover_id ?? null}
+              offset={edit.thumb_offset_ms}
+              duration={edit.duration_seconds}
+              onSaved={refresh}
+            />
+          }
           onClose={() => setEdit(null)}
           onSave={(v) =>
             run(async () => {
