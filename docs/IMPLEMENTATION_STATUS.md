@@ -1,6 +1,6 @@
 # Implementation and verification status
 
-Recorded 14 October 2026 (Asia/Kolkata). **OAuth and real-video upload fixes are deployed and confirmed working by the owner. Bulk caption/cover features are implemented and approved for deployment; rollout details follow below. Publishing is PAUSED, cron is DISABLED, and this task has not published Instagram content.**
+Recorded 14 October 2026 (Asia/Kolkata). **OAuth and real-video upload fixes are deployed and confirmed working by the owner. Bulk caption/cover features and their additive migration are now deployed; rollout details follow below. Publishing is PAUSED, cron is DISABLED, and this task has not published Instagram content.**
 
 ## Production target and authorization
 
@@ -58,3 +58,13 @@ Recorded 14 October 2026 (Asia/Kolkata). **OAuth and real-video upload fixes are
 - Read-only production checks reconfirm enabled=0, next_publish_at=NULL, zero accounts/videos/jobs, no cron schedules, all required secret names and original bindings. R2 reports zero objects/bytes, public development URL disabled, no custom domains and the expected production CORS.
 - The owner confirmed successful production OAuth and real-video finalization on Workers Free after deployment. Exact CPU timings and sustained load were not measured. No real publishing acceptance is claimed.
 - The subsequent approved bulk caption/cover release is implemented; see [BULK_SETTINGS.md](BULK_SETTINGS.md) for migration, security, tests and rollout. Earlier zero-record counts above describe historical checks, not current data.
+
+## Bulk caption and cover production release — 14 October 2026
+
+- Feature branch: `codex/bulk-reel-settings`, implementation commit `86dcc8e`, pushed to the owner repository.
+- Production version: `2a41cbfa-9f29-41c7-9a6e-3df431f2a4b0`. Migration `0002_bulk_reel_settings.sql` applied successfully; existing captions, jobs, account, video and pause state preserved.
+- 83 tests, TypeScript, production build and Wrangler dry-run passed. All 13 runtime tests passed against the packaged backend. Desktop/mobile local browser checks verified bulk selection, saved defaults and confirmed application.
+- Production page/current assets: 200 and HSTS. Anonymous dashboard/covers: 401. Unsigned cover URL: 403. Existing binding/secret names preserved; R2 private and CORS correct; schedules empty. Read-only D1: enabled=0, one account, one ready video, one skipped manual job, zero covers.
+- Remaining owner check: refresh Video library, upload a JPG/PNG cover, save a caption, apply to the selected video and refresh to verify persistence. This does not require publishing. Real production cover CPU limits and Meta cover acceptance are not inferred from local tests. No real Reel was published.
+- No new paid services or plan changes. Existing 8 GB reservation cap includes covers; temporary copies, operations and other account usage still count toward R2 allowances. Billing API remains inaccessible with current Wrangler scope, so the owner-confirmed plan information is retained.
+- See [BULK_SETTINGS.md](BULK_SETTINGS.md) for behavior, safeguards, limitations and rollback.
