@@ -182,11 +182,11 @@ describe("persistent sequential Batch Loop", () => {
   it("waits through processing delays and quota exhaustion without publishing", async () => {
     await setup();
     const a = adapter();
-    a.quota.mockResolvedValue({ used: 99, total: 100 });
+    a.quota.mockResolvedValue({ used: 99, total: 100, windowSeconds: 86400 });
     await tick(env, a);
     expect(await activeBatch(env)).toBeNull();
     expect((await settings()).enabled).toBe(0);
-    a.quota.mockResolvedValue({ used: 0, total: 100 });
+    a.quota.mockResolvedValue({ used: 0, total: 100, windowSeconds: 86400 });
     await env.DB.prepare("UPDATE settings SET enabled=1").run();
     await tick(env, a);
     a.status.mockResolvedValueOnce("IN_PROGRESS");
@@ -200,6 +200,33 @@ describe("persistent sequential Batch Loop", () => {
     await tick(env, a);
     expect(a.publish).not.toHaveBeenCalled();
     expect((await current())!.state).toBe("ready");
+  });
+  it("rechecks changed quota limits before a recurring batch, without creating new jobs", async () => {
+    await setup();
+    const a = adapter();
+    for (let i = 0; i < 4; i++) await finishOne(a);
+    await tick(env, a);
+    const due = (await settings()).next_publish_at!;
+    advance(due - now);
+    a.quota.mockResolvedValue({ used: 0, total: 10, windowSeconds: 86400 });
+    await tick(env, a);
+    expect((await settings()).enabled).toBe(0);
+    expect(await activeBatch(env)).toBeNull();
+    expect(a.publish).toHaveBeenCalledTimes(4);
+    expect(
+      (await env.DB.prepare("SELECT count(*) n FROM jobs").first<{
+        n: number;
+      }>())!.n,
+    ).toBe(4);
+  });
+  it("blocks batch execution when the provider quota window is missing", async () => {
+    await setup();
+    const a = adapter();
+    a.quota.mockResolvedValue({ used: 0, total: 100 });
+    await tick(env, a);
+    expect((await settings()).enabled).toBe(0);
+    expect(await activeBatch(env)).toBeNull();
+    expect(a.createContainer).not.toHaveBeenCalled();
   });
   it("fences concurrent ticks and never retries an uncertain publish or starts another item", async () => {
     await setup();

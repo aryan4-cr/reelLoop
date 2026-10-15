@@ -138,7 +138,11 @@ export function adapter() {
     createContainer: vi.fn(async () => "container-1"),
     status: vi.fn(async () => "FINISHED"),
     publish: vi.fn(async () => "media-1"),
-    quota: vi.fn(async () => ({ used: 0, total: 100 })),
+    quota: vi.fn<MetaAdapter["quota"]>(async () => ({
+      used: 0,
+      total: 100,
+      windowSeconds: 86400,
+    })),
     refresh: vi.fn(async () => ({
       access_token: "refreshed-test-token",
       expires_in: 60 * 86400,

@@ -271,7 +271,22 @@ export async function tick(
             ).all<Video>()
           ).results;
           const quota = await adapter.quota(account.instagram_id, token);
-          if (quota.total - quota.used < batchVideos(rows, s).length) {
+          const count = batchVideos(rows, s).length;
+          if (
+            !quota.windowSeconds ||
+            !Number.isFinite(quota.windowSeconds) ||
+            quota.windowSeconds <= 0 ||
+            count * Math.ceil(quota.windowSeconds / (s.interval_minutes * 60)) >
+              quota.total
+          ) {
+            await pause(
+              env,
+              "The live Instagram quota window or planned batch volume changed. Review quota and scheduling settings before resuming.",
+              lease,
+            );
+            return;
+          }
+          if (quota.total - quota.used < count) {
             await pause(
               env,
               "Insufficient Instagram quota for the whole batch. Check quota and resume later.",

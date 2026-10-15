@@ -1,3 +1,5 @@
+Latest live acceptance (15 October 2026): the separately approved single Reel succeeded with media ID `18094555700689217`, also confirmed by Instagram recent-media lookup and by the owner. The job used a custom cover. Four source videos remain. The owner has now authorized automatic five-hour Batch Loop activation after the final safety update. See [BATCH_LOOP.md](BATCH_LOOP.md) for the final result; earlier paused/unverified statements below are historical.
+
 # Implementation and verification status
 
 Latest release: Batch Loop deployed 15 October 2026, version `15793199-79c4-4bbb-a4b1-db5bb8bc7ddd`; all four enabled videos are configured for five-hour batches, paused. See [BATCH_LOOP.md](BATCH_LOOP.md). Earlier release records follow.

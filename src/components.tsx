@@ -470,6 +470,19 @@ export function Scheduling({
       String(data.settings.cooldown_minutes / 60),
     ),
     [start, setStart] = useState("");
+  const enabledCount = data.videos.filter(
+    (v) => v.enabled && v.status === "ready",
+  ).length;
+  const unsaved =
+    Number(minutes) !== data.settings.interval_minutes ||
+    timezone !== data.settings.timezone ||
+    mode !== (data.settings.batch_enabled ? "batch" : data.settings.mode) ||
+    Number(batchSize) !== data.settings.batch_size ||
+    Math.round(Number(cooldown) * 60) !== data.settings.cooldown_minutes;
+  useEffect(
+    () => setConfirmed(false),
+    [minutes, timezone, mode, batchSize, cooldown, enabledCount],
+  );
   return (
     <div className="schedule-grid">
       <section className="panel padded">
@@ -693,11 +706,17 @@ export function Scheduling({
               </div>
             </div>
           )}
+          {unsaved && (
+            <p role="status">
+              Save your changed scheduling settings before starting.
+            </p>
+          )}
           <div className="rhythm-actions">
             <Button
               variant="primary"
               disabled={
                 busy ||
+                unsaved ||
                 !!data.settings.enabled ||
                 Boolean(data.settings.batch_enabled && !confirmed)
               }

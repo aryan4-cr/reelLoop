@@ -26,4 +26,10 @@ Rollback: first pause and resolve/cancel any active batch; leave additive tables
 
 ## Deployment result
 
-Migration 0003 and commit `de255ec` deployed successfully as Worker version `15793199-79c4-4bbb-a4b1-db5bb8bc7ddd`. Cron remains registered every minute. Production D1 confirms enabled=0, interval=300, batch_enabled=1, batch_size=0, cooldown=0 and four ready videos. Existing secrets, records and R2 objects were preserved. HTTPS/current assets return 200; anonymous dashboard and quota endpoints return 401. A single owner-authorized real-post test is pending the interactive owner login; no Batch Loop start was requested or performed.
+Migration 0003 and commit `de255ec` deployed successfully as Worker version `15793199-79c4-4bbb-a4b1-db5bb8bc7ddd`. Cron remains registered every minute. Production D1 confirms enabled=0, interval=300, batch_enabled=1, batch_size=0, cooldown=0 and four ready videos. Existing secrets, records and R2 objects were preserved. HTTPS/current assets return 200; anonymous dashboard and quota endpoints return 401. The authorized real-post test succeeded. Job `5147043f-fad7-4f32-a793-a21662b171a3` persisted real Instagram media ID `18094555700689217`; the authenticated recent-media response confirmed that exact ID. The job had a custom cover reference. The owner also confirmed seeing the Reel. This verifies one live post, not sustained multi-batch operation or exact cover appearance. All four videos remain stored.
+
+## Final safety improvements and activation authorization
+
+Before every new recurring batch, the scheduler now rechecks the returned quota window and projected volume, including after library size or provider limits change. Missing quota windows fail closed. The Start control blocks unsaved scheduling edits and resets high-frequency confirmation when interval, mode, batch size, cooldown or enabled-video count changes. Two persistence regression tests cover changed quota limits and missing windows.
+
+The owner subsequently explicitly requested keeping everything on after deployment, authorizing activation of the four-video, five-hour Batch Loop. Activation must use the authenticated Start workflow, including its live quota check and explicit batch confirmation; no direct database enable bypass is permitted. Final activation result follows when completed.
