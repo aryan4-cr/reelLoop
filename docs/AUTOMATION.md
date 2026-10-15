@@ -1,5 +1,7 @@
 # Cloud automation — 15 October 2026
 
+Current state: **Batch Loop ON**, all four enabled videos every **five hours**, with sequential processing and the existing one-minute cloud cron. Authenticated activation and production D1 verified the first active four-item batch. See [BATCH_LOOP.md](BATCH_LOOP.md) for current release evidence and controls. The three-hour single-video configuration and unverified-publication statements below describe the earlier release, not the current state.
+
 The owner authorized the existing Worker cron to run every minute, with automatic publishing remaining paused until started from the dashboard. This configuration uses the existing D1 schedule and private R2 storage; the laptop is not involved in scheduled execution.
 
 Preflight confirmed Instagram connected with a non-expired token, one ready enabled video, and two manual jobs in skipped state after the owner cancelled the latest queued test through the dashboard. No creating, processing, ready, publishing or uncertain job remained. Existing videos, covers, credentials and history were preserved.

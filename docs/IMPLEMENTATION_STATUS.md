@@ -1,8 +1,8 @@
-Latest live acceptance (15 October 2026): the separately approved single Reel succeeded with media ID `18094555700689217`, also confirmed by Instagram recent-media lookup and by the owner. The job used a custom cover. Four source videos remain. The owner has now authorized automatic five-hour Batch Loop activation after the final safety update. See [BATCH_LOOP.md](BATCH_LOOP.md) for the final result; earlier paused/unverified statements below are historical.
+Latest live acceptance (15 October 2026): Batch Loop is ON for all four enabled videos every five hours, verified through authenticated Start and production D1. The first four-item batch is active with its first automatic job processing; full-batch completion is not yet verified. The separately approved single Reel succeeded with media ID `18094555700689217`, also confirmed by Instagram recent-media lookup and by the owner. The job used a custom cover. Four source videos remain. See [BATCH_LOOP.md](BATCH_LOOP.md); earlier paused/unverified statements below are historical.
 
 # Implementation and verification status
 
-Latest release: Batch Loop deployed 15 October 2026, version `15793199-79c4-4bbb-a4b1-db5bb8bc7ddd`; all four enabled videos are configured for five-hour batches, paused. See [BATCH_LOOP.md](BATCH_LOOP.md). Earlier release records follow.
+Latest release: Batch Loop safety improvements deployed 15 October 2026, version `3a6a5345-354d-4299-8cf9-c89888f2f9ee`; 95 tests, TypeScript, build and dry-run passed. All four enabled videos are configured for five-hour batches, now ON at the owner's request. See [BATCH_LOOP.md](BATCH_LOOP.md). Earlier release records follow.
 
 Recorded 14 October 2026 (Asia/Kolkata). **OAuth and real-video upload fixes are deployed and confirmed working by the owner. Bulk caption/cover features and their additive migration are now deployed; rollout details follow below. Publishing remains PAUSED. The owner-approved cron activation is documented in AUTOMATION.md; earlier disabled-cron entries below are historical. This task has not published Instagram content.**
 
