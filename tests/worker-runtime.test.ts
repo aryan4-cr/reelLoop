@@ -130,7 +130,8 @@ describe("production Worker runtime integration", () => {
     bucket = (await mf.getR2Bucket("VIDEOS")) as unknown as R2Bucket;
     const sql = (
       readFileSync("migrations/0001_initial.sql", "utf8") +
-      readFileSync("migrations/0002_bulk_reel_settings.sql", "utf8")
+      readFileSync("migrations/0002_bulk_reel_settings.sql", "utf8") +
+      readFileSync("migrations/0003_batch_loop.sql", "utf8")
     ).replace(/^\uFEFF/, "");
     await db.batch(
       sql

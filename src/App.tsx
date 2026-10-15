@@ -1,3 +1,4 @@
+import { BatchPreview, BatchProgress } from "./components";
 import { BulkSettings, VideoCoverEditor } from "./BulkSettings";
 import { coverPreview } from "./covers";
 import { useState, useEffect, useRef } from "react";
@@ -425,7 +426,9 @@ export default function App() {
                 <span>
                   <Repeat2 size={14} />
                   {data.settings.mode === "loop"
-                    ? "Continuous loop"
+                    ? data.settings.batch_enabled
+                      ? "Batch Loop"
+                      : "Single Reel Loop"
                     : "Publish once"}
                 </span>
                 <span className="status-timezone">{tz}</span>
@@ -530,19 +533,21 @@ export default function App() {
                               variant={running ? "" : "primary"}
                               disabled={busy}
                               onClick={() =>
-                                run(
-                                  () =>
-                                    api(
+                                !running && data.settings.batch_enabled
+                                  ? switchTab("schedule")
+                                  : run(
+                                      () =>
+                                        api(
+                                          running
+                                            ? "/schedule/pause"
+                                            : "/schedule/start",
+                                          "POST",
+                                          {},
+                                        ),
                                       running
-                                        ? "/schedule/pause"
-                                        : "/schedule/start",
-                                      "POST",
-                                      {},
-                                    ),
-                                  running
-                                    ? "Automation paused. An already submitted Reel may still finish."
-                                    : "Automation enabled.",
-                                )
+                                        ? "Automation paused. An already submitted Reel may still finish."
+                                        : "Automation enabled.",
+                                    )
                               }
                             >
                               {running ? (
@@ -687,7 +692,9 @@ export default function App() {
                       <div className="panel-foot">
                         <Repeat2 size={15} />
                         {data.settings.mode === "loop"
-                          ? "The queue loops after the last eligible video."
+                          ? data.settings.batch_enabled
+                            ? "All enabled videos repeat in each batch. See Scheduling for grouped estimates."
+                            : "The queue loops after the last eligible video."
                           : "Each video publishes once."}
                       </div>
                     </section>
@@ -1155,13 +1162,25 @@ export default function App() {
                           : "Preview · automation paused"}
                       </span>
                     </div>
-                    {data.upcoming.map((v, i) => (
-                      <div className="preview-slot" key={i}>
-                        <span className="order">{i + 1}</span>
-                        <strong>{v.name}</strong>
-                        <span>{fmt(v.at, tz)}</span>
-                      </div>
-                    ))}
+                    {data.settings.batch_enabled ? (
+                      <>
+                        <BatchProgress
+                          data={data}
+                          run={run}
+                          busy={busy}
+                          tz={tz}
+                        />
+                        <BatchPreview data={data} tz={tz} />
+                      </>
+                    ) : (
+                      data.upcoming.map((v, i) => (
+                        <div className="preview-slot" key={i}>
+                          <span className="order">{i + 1}</span>
+                          <strong>{v.name}</strong>
+                          <span>{fmt(v.at, tz)}</span>
+                        </div>
+                      ))
+                    )}
                     {!data.upcoming.length && (
                       <p className="muted padded">
                         No eligible videos to preview.

@@ -17,6 +17,8 @@ export interface Env {
   MAX_STORAGE_BYTES: string;
 }
 export interface Settings {
+  batch_enabled: number;
+  batch_size: number;
   default_caption: string;
   default_cover_id: string | null;
   id: number;
@@ -65,6 +67,7 @@ export interface Account {
   status: string;
 }
 export interface Job {
+  batch_id: string | null;
   cover_id: string | null;
   thumb_offset_ms: number;
   id: string;

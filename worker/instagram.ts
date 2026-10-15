@@ -29,7 +29,7 @@ export interface MetaAdapter {
   quota(
     account: string,
     token: string,
-  ): Promise<{ used: number; total: number }>;
+  ): Promise<{ used: number; total: number; windowSeconds?: number }>;
   refresh(token: string): Promise<{ access_token: string; expires_in: number }>;
   media(
     account: string,
@@ -145,7 +145,10 @@ export class Instagram implements MetaAdapter {
   }
   async quota(account: string, token: string) {
     const data = await this.request<{
-      data: Array<{ quota_usage: number; config: { quota_total: number } }>;
+      data: Array<{
+        quota_usage: number;
+        config: { quota_total: number; quota_duration?: number };
+      }>;
     }>(`${account}/content_publishing_limit`, token, "GET", {
       fields: "quota_usage,config",
     });
@@ -156,7 +159,13 @@ export class Instagram implements MetaAdapter {
       !Number.isFinite(row.config?.quota_total)
     )
       throw new MetaError(0, true);
-    return { used: row.quota_usage, total: row.config.quota_total };
+    if (row.quota_usage < 0 || row.config.quota_total <= 0)
+      throw new MetaError(0, true);
+    return {
+      used: row.quota_usage,
+      total: row.config.quota_total,
+      windowSeconds: row.config.quota_duration,
+    };
   }
   async refresh(token: string) {
     const url = new URL("https://graph.instagram.com/refresh_access_token");

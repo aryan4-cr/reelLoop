@@ -24,7 +24,8 @@ export const settingsSchema = z.object({
       return false;
     }
   }, "Invalid timezone"),
-  mode: z.enum(["loop", "once"]),
+  mode: z.enum(["loop", "once", "batch"]),
+  batch_size: z.number().int().min(0).max(20).default(0),
   cooldown_minutes: z.number().int().min(0).max(525600),
 });
 export const captionText = z

@@ -202,9 +202,9 @@ bulk.delete("/covers/:id", async (c) => {
   await withLease(c.env, async (lease) => {
     const id = c.req.param("id");
     const refs = await c.env.DB.prepare(
-      "SELECT (SELECT COUNT(*) FROM settings WHERE default_cover_id=?)+(SELECT COUNT(*) FROM videos WHERE cover_id=?)+(SELECT COUNT(*) FROM jobs WHERE cover_id=?) total",
+      "SELECT (SELECT COUNT(*) FROM settings WHERE default_cover_id=?)+(SELECT COUNT(*) FROM videos WHERE cover_id=?)+(SELECT COUNT(*) FROM jobs WHERE cover_id=?)+(SELECT COUNT(*) FROM batch_items WHERE cover_id=?) total",
     )
-      .bind(id, id, id)
+      .bind(id, id, id, id)
       .first<{ total: number }>();
     if (refs!.total)
       throw new HTTPException(409, {

@@ -44,6 +44,10 @@ export async function init() {
     readFileSync(
       new URL("../migrations/0002_bulk_reel_settings.sql", import.meta.url),
       "utf8",
+    ) +
+    readFileSync(
+      new URL("../migrations/0003_batch_loop.sql", import.meta.url),
+      "utf8",
     );
   await env.DB.batch(
     sql
@@ -63,7 +67,9 @@ export async function reset() {
   await env.DB.batch(
     [
       "job_events",
+      "batch_items",
       "jobs",
+      "batches",
       "videos",
       "accounts",
       "sessions",
@@ -73,7 +79,7 @@ export async function reset() {
     ].map((t) => env.DB.prepare(`DELETE FROM ${t}`)),
   );
   await env.DB.prepare(
-    "UPDATE settings SET enabled=0,interval_minutes=180,timezone='Asia/Kolkata',mode='loop',cooldown_minutes=0,next_publish_at=NULL,last_video_id=NULL,cursor_position=-1,failure_streak=0,pause_reason=NULL,lease_token=NULL,lease_until=0",
+    "UPDATE settings SET batch_enabled=0,batch_size=0,enabled=0,interval_minutes=180,timezone='Asia/Kolkata',mode='loop',cooldown_minutes=0,next_publish_at=NULL,last_video_id=NULL,cursor_position=-1,failure_streak=0,pause_reason=NULL,lease_token=NULL,lease_until=0",
   ).run();
 }
 export function advance(ms = 61000) {

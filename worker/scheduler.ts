@@ -1,3 +1,9 @@
+import {
+  activeBatch,
+  snapshotBatch,
+  nextBatchJob,
+  batchVideos,
+} from "./batches";
 import { requireCover } from "./bulk";
 import { captionText } from "./validation";
 import {
@@ -94,11 +100,11 @@ export async function complete(
     env.DB.prepare(
       `UPDATE settings SET last_video_id=CASE WHEN ?=0 THEN ? ELSE last_video_id END,cursor_position=CASE WHEN ?=0 THEN ? ELSE cursor_position END,next_publish_at=CASE WHEN ?=0 THEN ? ELSE next_publish_at END,failure_streak=0 WHERE id=1 AND EXISTS(SELECT 1 FROM jobs WHERE id=? AND ${eligible})`,
     ).bind(
-      job.manual,
+      job.manual || job.batch_id ? 1 : 0,
       job.video_id,
-      job.manual,
+      job.manual || job.batch_id ? 1 : 0,
       job.position,
-      job.manual,
+      job.manual || job.batch_id ? 1 : 0,
       nextSlot(
         job.scheduled_at,
         Math.max(actual, Date.now()),
@@ -111,6 +117,12 @@ export async function complete(
     ).bind(mediaId, actual, job.id),
   ]);
   if (!result[2].meta.changes) return;
+  if (job.batch_id)
+    await env.DB.prepare(
+      `UPDATE batches SET next_item_at=? WHERE id=? AND ${lease.guard()}`,
+    )
+      .bind(Date.now() + 60000, job.batch_id)
+      .run();
   await event(env, job.id, "succeeded", `Published media ${mediaId}`);
 }
 async function fail(env: Env, lease: Lease, job: Job, reason: string) {
@@ -122,6 +134,12 @@ async function fail(env: Env, lease: Lease, job: Job, reason: string) {
       `UPDATE settings SET failure_streak=failure_streak+1,next_publish_at=?,enabled=CASE WHEN failure_streak>=2 THEN 0 ELSE enabled END,pause_reason=CASE WHEN failure_streak>=2 THEN 'Paused after three failed jobs. Review history.' ELSE pause_reason END WHERE id=1 AND ${lease.guard()}`,
     ).bind(Date.now() + 3600000),
   ]);
+  if (job.batch_id)
+    await env.DB.prepare(
+      `UPDATE batches SET next_item_at=? WHERE id=? AND ${lease.guard()}`,
+    )
+      .bind(Date.now() + 60000, job.batch_id)
+      .run();
   await event(env, job.id, "failed", reason);
 }
 export async function createJob(
@@ -179,7 +197,11 @@ export async function tick(
       let job = await env.DB.prepare(
         `SELECT * FROM jobs WHERE state IN(${ACTIVE}) LIMIT 1`,
       ).first<Job>();
-      if (!job && (!s.enabled || (s.next_publish_at ?? Infinity) > Date.now()))
+      let batch = await activeBatch(env);
+      if (
+        !job &&
+        (!s.enabled || (!batch && (s.next_publish_at ?? Infinity) > Date.now()))
+      )
         return;
       if (job?.state === "uncertain") return;
       const account = await env.DB.prepare(
@@ -232,6 +254,36 @@ export async function tick(
             return;
           } /* transient refresh error: valid current token can still be used */
         }
+      }
+      if (!job && (batch || s.batch_enabled)) {
+        if (batch && batch.account_id !== account.instagram_id) {
+          await pause(
+            env,
+            "Batch belongs to a different Instagram account. Cancel the batch before resuming.",
+            lease,
+          );
+          return;
+        }
+        if (!batch) {
+          const rows = (
+            await env.DB.prepare(
+              "SELECT * FROM videos ORDER BY position,id",
+            ).all<Video>()
+          ).results;
+          const quota = await adapter.quota(account.instagram_id, token);
+          if (quota.total - quota.used < batchVideos(rows, s).length) {
+            await pause(
+              env,
+              "Insufficient Instagram quota for the whole batch. Check quota and resume later.",
+              lease,
+            );
+            return;
+          }
+          batch = await snapshotBatch(env, lease, s, account, rows);
+          if (!batch) return;
+        }
+        job = await nextBatchJob(env, lease, batch);
+        if (!job) return;
       }
       if (!job) {
         const videos = (

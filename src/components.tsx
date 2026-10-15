@@ -456,7 +456,16 @@ export function Scheduling({
       String(data.settings.interval_minutes),
     ),
     [timezone, setTimezone] = useState(tz),
-    [mode, setMode] = useState(data.settings.mode),
+    [mode, setMode] = useState<"loop" | "once" | "batch">(
+      data.settings.batch_enabled ? "batch" : data.settings.mode,
+    ),
+    [batchSize, setBatchSize] = useState(String(data.settings.batch_size || 0)),
+    [confirmed, setConfirmed] = useState(false),
+    [quota, setQuota] = useState<{
+      used: number;
+      total: number;
+      windowSeconds?: number;
+    } | null>(null),
     [cooldown, setCooldown] = useState(
       String(data.settings.cooldown_minutes / 60),
     ),
@@ -477,6 +486,7 @@ export function Scheduling({
                   interval_minutes: Number(minutes),
                   timezone,
                   mode,
+                  batch_size: Number(batchSize),
                   cooldown_minutes: Math.round(Number(cooldown) * 60),
                 }),
               "Settings saved. The current next publication time is preserved.",
@@ -498,8 +508,8 @@ export function Scheduling({
               <span>minutes</span>
             </div>
             <small>
-              {Number(minutes) / 60} hours · Default 180 minutes (3 hours).
-              Minimum 1 hour.
+              {Number(minutes) / 60} hours · Batch Loop defaults to 300 minutes
+              (5 hours). Minimum 1 hour.
             </small>
           </label>
           <label>
@@ -520,15 +530,75 @@ export function Scheduling({
             </small>
           </label>
           <label>
-            Queue behavior
+            Publishing Mode
             <select
               value={mode}
-              onChange={(e) => setMode(e.target.value as "loop" | "once")}
+              onChange={(e) => {
+                const next = e.target.value as "loop" | "once" | "batch";
+                setMode(next);
+                setConfirmed(false);
+                if (next === "batch" && mode !== "batch") setMinutes("300");
+              }}
             >
-              <option value="loop">Continuous loop</option>
-              <option value="once">Publish each video once</option>
+              <option value="loop">Single Reel Loop</option>
+              <option value="batch">Batch Loop</option>
+              <option value="once">Publish Once</option>
             </select>
           </label>
+          {mode === "batch" && (
+            <div className="info-note">
+              <div>
+                <label>
+                  Batch size (0 = all enabled, maximum 20)
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    value={batchSize}
+                    onChange={(e) => {
+                      setBatchSize(e.target.value);
+                      setConfirmed(false);
+                    }}
+                  />
+                </label>
+                <p>
+                  {
+                    data.videos.filter((v) => v.enabled && v.status === "ready")
+                      .length
+                  }{" "}
+                  enabled videos. Estimated{" "}
+                  {(
+                    (Math.min(
+                      Number(batchSize) || 20,
+                      data.videos.filter(
+                        (v) => v.enabled && v.status === "ready",
+                      ).length,
+                    ) *
+                      1440) /
+                    Number(minutes)
+                  ).toFixed(1)}{" "}
+                  Reels/day on average; up to{" "}
+                  {Math.min(
+                    Number(batchSize) || 20,
+                    data.videos.filter((v) => v.enabled && v.status === "ready")
+                      .length,
+                  ) * Math.ceil(1440 / Number(minutes))}{" "}
+                  in 24 hours.
+                </p>
+                <p>
+                  Repeated content and frequent posting may trigger spam
+                  enforcement or account restrictions. Quota availability is not
+                  approval of content. Each batch runs sequentially; processing
+                  can delay these estimates.
+                </p>
+                {Number(cooldown) * 60 > Number(minutes) && (
+                  <p role="alert">
+                    Cooldown exceeds interval. This schedule cannot start.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
           <label>
             Minimum repeat cooldown
             <div className="input-suffix">
@@ -582,18 +652,64 @@ export function Scheduling({
               preview uses {tz}.
             </small>
           </label>
+          {Boolean(data.settings.batch_enabled) && (
+            <div className="info-note">
+              <div>
+                <Button
+                  disabled={busy}
+                  onClick={() =>
+                    run(
+                      async () => setQuota(await api("/instagram/quota")),
+                      "Live quota checked.",
+                    )
+                  }
+                >
+                  Check live Instagram quota
+                </Button>
+                {quota && (
+                  <p>
+                    {quota.used} used / {quota.total} allowed in{" "}
+                    {quota.windowSeconds
+                      ? quota.windowSeconds / 3600
+                      : "unknown"}{" "}
+                    hours. Start rechecks the live quota.
+                  </p>
+                )}
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={confirmed}
+                    onChange={(e) => setConfirmed(e.target.checked)}
+                  />{" "}
+                  I confirm the saved Batch Loop frequency and understand
+                  repeated-content risks.
+                </label>
+                <p>
+                  Next batch: {fmt(data.settings.next_publish_at, tz)}.
+                  Estimated first Reel: about 2 minutes after batch start;
+                  subsequent Reels about 3 minutes apart. Actual timing depends
+                  on Instagram.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="rhythm-actions">
             <Button
               variant="primary"
-              disabled={busy || !!data.settings.enabled}
+              disabled={
+                busy ||
+                !!data.settings.enabled ||
+                Boolean(data.settings.batch_enabled && !confirmed)
+              }
               onClick={() =>
                 run(
                   () =>
-                    api(
-                      "/schedule/start",
-                      "POST",
-                      start ? { start_at: new Date(start).getTime() } : {},
-                    ),
+                    api("/schedule/start", "POST", {
+                      ...(start ? { start_at: new Date(start).getTime() } : {}),
+                      ...(data.settings.batch_enabled && confirmed
+                        ? { batch_confirmation: "START BATCH LOOP" }
+                        : {}),
+                    }),
                   "Automation started.",
                 )
               }
@@ -622,20 +738,25 @@ export function Scheduling({
             </p>
           </div>
         </section>
+        <BatchProgress data={data} run={run} busy={busy} tz={tz} />
         <section className="panel schedule-preview">
           <div className="panel-heading">
             <strong>Upcoming times</strong>
             <Clock size={17} />
           </div>
-          {data.upcoming.slice(0, 6).map((v, i) => (
-            <div className="preview-slot" key={i}>
-              <span className="order">{i + 1}</span>
-              <div>
-                <strong>{v.name}</strong>
-                <small>{fmt(v.at, tz)}</small>
+          {data.settings.batch_enabled ? (
+            <BatchPreview data={data} tz={tz} />
+          ) : (
+            data.upcoming.slice(0, 6).map((v, i) => (
+              <div className="preview-slot" key={i}>
+                <span className="order">{i + 1}</span>
+                <div>
+                  <strong>{v.name}</strong>
+                  <small>{fmt(v.at, tz)}</small>
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
           {!data.upcoming.length && (
             <p className="padded muted">
               Add an enabled video to preview your schedule.
@@ -827,5 +948,98 @@ export function JobDetails({
         </div>
       )}
     </Modal>
+  );
+}
+export function BatchPreview({ data, tz }: { data: Dashboard; tz: string }) {
+  const groups = Array.from(
+    new Set(
+      data.upcoming
+        .map((v) => v.batch_at)
+        .filter((t): t is number => t !== undefined),
+    ),
+  );
+  return (
+    <div>
+      {groups.map((at, i) => (
+        <div className="padded" key={at}>
+          <strong>
+            Batch {i + 1} — {fmt(at, tz)}
+          </strong>
+          <p className="muted">
+            Estimated completion:{" "}
+            {fmt(
+              Math.max(
+                ...data.upcoming
+                  .filter((v) => v.batch_at === at)
+                  .map((v) => v.at),
+              ),
+              tz,
+            )}
+            . Times are estimates, not simultaneous posts.
+          </p>
+          {data.upcoming
+            .filter((v) => v.batch_at === at)
+            .map((v, j) => (
+              <div className="preview-slot" key={`${at}-${v.id}`}>
+                <span>{j + 1}</span>
+                <strong>{v.name}</strong>
+                <small>Estimated {fmt(v.at, tz)}</small>
+              </div>
+            ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+export function BatchProgress({
+  data,
+  run,
+  busy,
+  tz,
+}: {
+  data: Dashboard;
+  run: Run;
+  busy: boolean;
+  tz: string;
+}) {
+  const batch =
+    data.batches?.find((b) => b.state === "active") ?? data.batches?.[0];
+  if (!batch) return null;
+  const items = data.batch_items.filter((i) => i.batch_id === batch.id);
+  return (
+    <section className="panel padded">
+      <h3>Batch progress — {batch.state}</h3>
+      <p>
+        {batch.succeeded} published, {batch.failed} failed / {batch.total}{" "}
+        videos. Started {fmt(batch.scheduled_at, tz)}.
+      </p>
+      {items.map((i) => (
+        <p key={i.id}>
+          {i.ordinal + 1}. {i.video_name} — {i.job_state ?? i.state}
+          {i.actual_at ? ` · Published ${fmt(i.actual_at, tz)}` : ""}
+        </p>
+      ))}
+      {batch.state === "active" && (
+        <Button
+          disabled={busy}
+          onClick={() => {
+            if (
+              window.confirm(
+                "Cancel all remaining unpublished batch items? Published results and your library will be kept. Uncertain outcomes must be reconciled first.",
+              )
+            )
+              void run(
+                () =>
+                  api("/batches/cancel", "POST", {
+                    confirmation: "CANCEL UNPUBLISHED BATCH",
+                  }),
+                "Batch cancelled; automation paused.",
+              );
+          }}
+        >
+          Cancel unpublished batch items
+        </Button>
+      )}
+    </section>
   );
 }

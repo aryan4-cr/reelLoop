@@ -2,6 +2,25 @@ import type { Settings, Video, Job } from "../worker/types";
 export type PublicVideo = Omit<Video, "object_key" | "multipart_id">;
 export type PublicJob = Omit<Job, "object_key" | "media_expires_at">;
 export interface Dashboard {
+  batches: Array<{
+    id: string;
+    state: string;
+    scheduled_at: number;
+    total: number;
+    succeeded: number;
+    failed: number;
+    completed_at: number | null;
+  }>;
+  batch_items: Array<{
+    id: string;
+    batch_id: string;
+    ordinal: number;
+    video_name: string;
+    state: string;
+    job_id: string | null;
+    job_state: string | null;
+    actual_at: number | null;
+  }>;
   settings: Settings;
   account: {
     instagram_id: string;
@@ -13,7 +32,13 @@ export interface Dashboard {
   jobs: PublicJob[];
   stats: { total: number; success: number; errors: number };
   storage: { used: number; limit: number };
-  upcoming: Array<{ id: string; name: string; at: number }>;
+  upcoming: Array<{
+    id: string;
+    name: string;
+    at: number;
+    batch_at?: number;
+    estimated?: boolean;
+  }>;
   configuration: { uploads: boolean; instagram: boolean };
 }
 let csrf = "";

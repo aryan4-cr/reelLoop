@@ -1,3 +1,4 @@
+import { activeBatch, cancelBatch, batchVideos } from "./batches";
 import { bulk, requireCover } from "./bulk";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -28,7 +29,7 @@ import { BusyError, withLease } from "./lease";
 import { Instagram, MetaError } from "./instagram";
 import { atStage, OperationError } from "./diagnostics";
 import { uploadSchema, settingsSchema, videoSchema } from "./validation";
-import { upcoming } from "./queue";
+import { upcoming, nextSlot } from "./queue";
 import { tick, createJob, complete, event } from "./scheduler";
 import {
   PART_SIZE,
@@ -185,6 +186,39 @@ app.get("/api/dashboard", async (c) => {
   void lease_token;
   void lease_until;
   const videos = result[2].results as unknown as Video[];
+  let preview = upcoming(videos, settings, Date.now());
+  const currentBatch = await activeBatch(c.env);
+  if (currentBatch && settings.batch_enabled) {
+    const items = (
+      await c.env.DB.prepare(
+        "SELECT i.video_id,i.video_name FROM batch_items i LEFT JOIN jobs j ON j.id=i.job_id WHERE i.batch_id=? AND (i.state='pending' OR (i.state='active' AND j.state NOT IN('succeeded','failed','skipped'))) ORDER BY i.ordinal",
+      )
+        .bind(currentBatch.id)
+        .all<{ video_id: string; video_name: string }>()
+    ).results;
+    const estimates = items.map((v, i) => ({
+      id: v.video_id,
+      name: v.video_name,
+      at: Date.now() + 120000 + i * 180000,
+      batch_at: currentBatch.scheduled_at,
+      estimated: true,
+    }));
+    preview = [
+      ...estimates,
+      ...upcoming(
+        videos,
+        {
+          ...settings,
+          next_publish_at: nextSlot(
+            currentBatch.scheduled_at,
+            Date.now() + items.length * 180000,
+            currentBatch.interval_minutes,
+          ),
+        },
+        Date.now(),
+      ),
+    ];
+  }
   return c.json({
     settings: publicSettings,
     account: result[1].results[0] ?? null,
@@ -207,7 +241,17 @@ app.get("/api/dashboard", async (c) => {
         Number((result[5].results[0] as { bytes: number })?.bytes ?? 0),
       limit: Number(c.env.MAX_STORAGE_BYTES) || 10737418240,
     },
-    upcoming: upcoming(videos, settings, Date.now()),
+    upcoming: preview,
+    batches: (
+      await c.env.DB.prepare(
+        "SELECT b.*, (SELECT COUNT(*) FROM batch_items i JOIN jobs j ON j.id=i.job_id WHERE i.batch_id=b.id AND j.state='succeeded') succeeded, (SELECT COUNT(*) FROM batch_items i JOIN jobs j ON j.id=i.job_id WHERE i.batch_id=b.id AND j.state='failed') failed FROM batches b ORDER BY created_at DESC LIMIT 10",
+      ).all()
+    ).results,
+    batch_items: (
+      await c.env.DB.prepare(
+        "SELECT i.id,i.batch_id,i.ordinal,i.video_name,i.state,i.job_id,j.state job_state,j.actual_at FROM batch_items i LEFT JOIN jobs j ON j.id=i.job_id WHERE i.batch_id IN(SELECT id FROM batches ORDER BY created_at DESC LIMIT 10) ORDER BY i.batch_id,i.ordinal",
+      ).all()
+    ).results,
     configuration: {
       uploads: configured(c.env),
       instagram: Boolean(
@@ -222,10 +266,29 @@ app.get("/api/dashboard", async (c) => {
 app.patch("/api/settings", async (c) => {
   const s = settingsSchema.parse(await c.req.json());
   await withLease(c.env, async (lease) => {
+    const current = await c.env.DB.prepare(
+      "SELECT enabled FROM settings WHERE id=1",
+    ).first<{ enabled: number }>();
+    if (current?.enabled || (await activeBatch(c.env)))
+      throw new HTTPException(409, {
+        message:
+          "Pause automation and finish or cancel the active batch before changing scheduling settings.",
+      });
+    if (s.mode === "batch" && s.cooldown_minutes > s.interval_minutes)
+      throw new HTTPException(409, {
+        message: "Per-video cooldown cannot exceed the batch interval.",
+      });
     await c.env.DB.prepare(
-      `UPDATE settings SET interval_minutes=?,timezone=?,mode=?,cooldown_minutes=? WHERE id=1 AND ${lease.guard()}`,
+      `UPDATE settings SET interval_minutes=?,timezone=?,mode=?,cooldown_minutes=?,batch_enabled=?,batch_size=? WHERE id=1 AND ${lease.guard()}`,
     )
-      .bind(s.interval_minutes, s.timezone, s.mode, s.cooldown_minutes)
+      .bind(
+        s.interval_minutes,
+        s.timezone,
+        s.mode === "batch" ? "loop" : s.mode,
+        s.cooldown_minutes,
+        s.mode === "batch" ? 1 : 0,
+        s.batch_size,
+      )
       .run();
   });
   return c.json({ ok: true });
@@ -237,8 +300,9 @@ app.post("/api/schedule/pause", async (c) => {
   return c.json({ ok: true });
 });
 app.post("/api/schedule/start", async (c) => {
-  const { start_at } = z
+  const { start_at, batch_confirmation } = z
     .object({
+      batch_confirmation: z.string().optional(),
       start_at: z
         .number()
         .int()
@@ -252,7 +316,7 @@ app.post("/api/schedule/start", async (c) => {
       "SELECT * FROM accounts WHERE id=1 AND status='connected' AND expires_at>?",
     )
       .bind(Date.now())
-      .first();
+      .first<Account>();
     if (!account)
       throw new HTTPException(409, {
         message: "Connect an authorized Instagram account first.",
@@ -282,6 +346,52 @@ app.post("/api/schedule/start", async (c) => {
         "SELECT * FROM videos WHERE status='ready' AND enabled=1",
       ).all<Video>()
     ).results;
+    if (s.batch_enabled) {
+      if (batch_confirmation !== "START BATCH LOOP")
+        throw new HTTPException(409, {
+          message:
+            "Explicit Batch Loop confirmation is required. Use Scheduling.",
+        });
+      if (s.cooldown_minutes > s.interval_minutes)
+        throw new HTTPException(409, {
+          message: "Per-video cooldown exceeds the batch interval.",
+        });
+      if (!s.batch_size && videos.length > 20)
+        throw new HTTPException(409, {
+          message: "Choose a batch size of at most 20 videos.",
+        });
+      const b = await activeBatch(c.env);
+      const size = b
+        ? Number(
+            (await c.env.DB.prepare(
+              "SELECT COUNT(*) n FROM batch_items WHERE batch_id=? AND state IN('pending','active')",
+            )
+              .bind(b.id)
+              .first<{ n: number }>())!.n,
+          )
+        : batchVideos(videos, s).length;
+      const q = await new Instagram(c.env).quota(
+        account.instagram_id,
+        await decryptToken(c.env, account.token_cipher),
+      );
+      if (
+        !q.windowSeconds ||
+        !Number.isFinite(q.windowSeconds) ||
+        q.windowSeconds <= 0
+      )
+        throw new HTTPException(409, {
+          message:
+            "Instagram did not return a valid quota window. Batch start is blocked.",
+        });
+      const demand =
+        batchVideos(videos, s).length *
+        Math.ceil(q.windowSeconds / (s.interval_minutes * 60));
+      if (q.total - q.used < size || demand > q.total)
+        throw new HTTPException(409, {
+          message:
+            "The batch or planned repeat volume exceeds Instagram’s returned publishing quota. Reduce batch size or increase interval.",
+        });
+    }
     if (!videos.some((v) => s.mode === "loop" || v.publish_count === 0))
       throw new HTTPException(409, {
         message: "Add an enabled verified video to the queue.",
@@ -292,6 +402,31 @@ app.post("/api/schedule/start", async (c) => {
       .bind(start_at ?? Math.max(Date.now(), s.next_publish_at ?? 0))
       .run();
   });
+  return c.json({ ok: true });
+});
+app.get("/api/instagram/quota", async (c) => {
+  const a = await c.env.DB.prepare(
+    "SELECT * FROM accounts WHERE id=1 AND status='connected' AND expires_at>?",
+  )
+    .bind(Date.now())
+    .first<Account>();
+  if (!a)
+    throw new HTTPException(409, {
+      message: "Connect a valid Instagram account first.",
+    });
+  return c.json(
+    await new Instagram(c.env).quota(
+      a.instagram_id,
+      await decryptToken(c.env, a.token_cipher),
+    ),
+  );
+});
+app.post("/api/batches/cancel", async (c) => {
+  const body = z
+    .object({ confirmation: z.literal("CANCEL UNPUBLISHED BATCH") })
+    .parse(await c.req.json());
+  void body;
+  await withLease(c.env, (lease) => cancelBatch(c.env, lease));
   return c.json({ ok: true });
 });
 app.post("/api/instagram/connect", async (c) => {
@@ -613,9 +748,9 @@ app.delete("/api/videos/:id", async (c) => {
     if (!v) throw new HTTPException(404, { message: "Video not found." });
     if (
       await c.env.DB.prepare(
-        `SELECT id FROM jobs WHERE video_id=? AND state IN(${ACTIVE})`,
+        `SELECT id FROM jobs WHERE video_id=? AND state IN(${ACTIVE}) UNION ALL SELECT id FROM batch_items WHERE video_id=? AND state IN('pending','active')`,
       )
-        .bind(id)
+        .bind(id, id)
         .first()
     )
       throw new HTTPException(409, {
@@ -652,9 +787,10 @@ app.post("/api/publish/test", async (c) => {
     const s = (await c.env.DB.prepare(
       "SELECT * FROM settings WHERE id=1",
     ).first<Settings>())!;
-    if (s.enabled)
+    if (s.enabled || (await activeBatch(c.env)))
       throw new HTTPException(409, {
-        message: "Pause automation before a manual test.",
+        message:
+          "Pause automation and finish or cancel the active batch before a manual test.",
       });
     if (!c.env.PUBLIC_ORIGIN.startsWith("https://") || !c.env.MEDIA_SIGNING_KEY)
       throw new HTTPException(409, {

@@ -33,6 +33,10 @@ it("adds bulk settings to an existing database without changing captions, jobs o
       )
       .run();
     await apply("0002_bulk_reel_settings.sql");
+    await apply("0003_batch_loop.sql");
+    expect(
+      await db.prepare("SELECT batch_enabled,batch_size FROM settings").first(),
+    ).toEqual({ batch_enabled: 0, batch_size: 0 });
     const video = await db
       .prepare("SELECT caption,hashtags,caption_override,cover_id FROM videos")
       .first();
