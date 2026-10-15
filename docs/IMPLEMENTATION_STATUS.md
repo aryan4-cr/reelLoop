@@ -1,6 +1,6 @@
 # Implementation and verification status
 
-Recorded 14 October 2026 (Asia/Kolkata). **OAuth and real-video upload fixes are deployed and confirmed working by the owner. Bulk caption/cover features and their additive migration are now deployed; rollout details follow below. Publishing is PAUSED, cron is DISABLED, and this task has not published Instagram content.**
+Recorded 14 October 2026 (Asia/Kolkata). **OAuth and real-video upload fixes are deployed and confirmed working by the owner. Bulk caption/cover features and their additive migration are now deployed; rollout details follow below. Publishing remains PAUSED. The owner-approved cron activation is documented in AUTOMATION.md; earlier disabled-cron entries below are historical. This task has not published Instagram content.**
 
 ## Production target and authorization
 

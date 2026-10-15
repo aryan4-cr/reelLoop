@@ -25,7 +25,7 @@
     },
   ],
   "r2_buckets": [{ "binding": "VIDEOS", "bucket_name": "reelloop-videos" }],
-  "triggers": { "crons": [] },
+  "triggers": { "crons": ["* * * * *"] },
   "vars": {
     "APP_ORIGIN": "https://my-worker.reelloop.workers.dev",
     "PUBLIC_ORIGIN": "https://my-worker.reelloop.workers.dev",
