@@ -23,3 +23,7 @@ Read-only live checks returned HTTP 200: quota usage **0**, total **100**, windo
 Production was paused before development; all four ready videos and previous history remain. The owner subsequently approved deployment and one real test after deployment. Deployment and that single test are recorded below when performed. Batch automation must remain paused until the owner explicitly starts it in Scheduling.
 
 Rollback: first pause and resolve/cancel any active batch; leave additive tables intact. Revert the Worker to `a08f6519-86ba-497d-b1a3-ecf9ad5b24fe` only with no active batch/job, and keep publishing paused. Older code cannot process pending batch items. Never restore an older database snapshot over new results. No new resources, dependencies or paid services are introduced.
+
+## Deployment result
+
+Migration 0003 and commit `de255ec` deployed successfully as Worker version `15793199-79c4-4bbb-a4b1-db5bb8bc7ddd`. Cron remains registered every minute. Production D1 confirms enabled=0, interval=300, batch_enabled=1, batch_size=0, cooldown=0 and four ready videos. Existing secrets, records and R2 objects were preserved. HTTPS/current assets return 200; anonymous dashboard and quota endpoints return 401. A single owner-authorized real-post test is pending the interactive owner login; no Batch Loop start was requested or performed.

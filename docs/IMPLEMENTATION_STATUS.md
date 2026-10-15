@@ -1,5 +1,7 @@
 # Implementation and verification status
 
+Latest release: Batch Loop deployed 15 October 2026, version `15793199-79c4-4bbb-a4b1-db5bb8bc7ddd`; all four enabled videos are configured for five-hour batches, paused. See [BATCH_LOOP.md](BATCH_LOOP.md). Earlier release records follow.
+
 Recorded 14 October 2026 (Asia/Kolkata). **OAuth and real-video upload fixes are deployed and confirmed working by the owner. Bulk caption/cover features and their additive migration are now deployed; rollout details follow below. Publishing remains PAUSED. The owner-approved cron activation is documented in AUTOMATION.md; earlier disabled-cron entries below are historical. This task has not published Instagram content.**
 
 ## Production target and authorization
